@@ -1,22 +1,14 @@
-const mongoose = require('mongoose');
-const Schema = mongoose.Schema;
+const mongoose = require("mongoose");
 
-const reportSchema = new Schema({
-  user:        { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  title:       { type: String, required: true },
-  description: { type: String },
-  date:        { type: Date, default: Date.now },
-  // Example of embedded health metrics
-  metrics: {
-    bloodPressure: {
-      systolic:  Number,
-      diastolic: Number
-    },
-    heartRate: Number,
-    notes:     String
+const ReportSchema = new mongoose.Schema(
+  {
+    user_id: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    type: { type: String, required: true }, // e.g. blood, urine, xray
+    date: { type: Date, required: true },
+    values: { type: Object, required: true }, // key-value report data (RBC, WBC, etc.)
+    suggestions: [String], // optional health suggestions
   },
-  createdAt: { type: Date, default: Date.now }
-});
+  { timestamps: true }
+);
 
-const Report = mongoose.model('Report', reportSchema);
-module.exports = Report;
+module.exports = mongoose.model("Report", ReportSchema);

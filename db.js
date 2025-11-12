@@ -6,7 +6,7 @@ const connectDB = async () => {
   try {
     // Modern connection syntax — no deprecated options needed
     await mongoose.connect(process.env.MONGODB_URI);
-
+    console.log("Connected to:", mongoose.connection.host);
     console.log('MongoDB Atlas connected');
   } catch (error) {
     console.error('MongoDB connection error:', error.message);
