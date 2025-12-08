@@ -1,31 +1,31 @@
 const express = require("express");
 const router = express.Router();
 const Clinic = require("../models/Clinic");
-const auth = require("../middleware/authMiddleware");
 
-// Return all clinics (or filtered by query)
-router.get("/nearby", auth, async (req, res) => {
-  try {
-    // basic: return all clinics; frontend filters by distance or you can extend with geo queries
-    const clinics = await Clinic.find().limit(200);
-    res.json(clinics);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
-});
-
-// Add clinic (admin)
+// Add a new clinic
 router.post("/add", async (req, res) => {
   try {
-    const { name, address, latitude, longitude, contactNumber, type } = req.body;
-    const c = new Clinic({ name, address, latitude, longitude, contactNumber, type });
-    await c.save();
-    res.status(201).json(c);
+    const { name, address, contactNumber, type, latitude, longitude, services, rating } = req.body;
+
+    const clinic = new Clinic({
+      name,
+      address,
+      contactNumber,
+      type,
+      location: {
+        type: "Point",
+        coordinates: [longitude, latitude], // GeoJSON expects [lng, lat]
+      },
+      services,
+      rating,
+    });
+
+    await clinic.save();
+    res.status(201).json(clinic);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
+    res.status(400).json({ error: err.message });
   }
 });
 
 module.exports = router;
+
