@@ -361,6 +361,8 @@ const StatCard = ({ icon: Icon, label, value, color }) => {
 // Reports Component
 const Reports = ({ reports, setReports, token }) => {
   const [showForm, setShowForm] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [ocrResult, setOcrResult] = useState(null);
   const [formData, setFormData] = useState({
     type: '',
     date: new Date().toISOString().split('T')[0],
@@ -369,7 +371,6 @@ const Reports = ({ reports, setReports, token }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
     try {
       const res = await fetch(`${API_URL}/reports/upload`, {
         method: 'POST',
@@ -385,6 +386,7 @@ const Reports = ({ reports, setReports, token }) => {
         setReports([newReport, ...reports]);
         setShowForm(false);
         setFormData({ type: '', date: new Date().toISOString().split('T')[0], values: {} });
+        setOcrResult(null);
       }
     } catch (err) {
       console.error('Error uploading report:', err);
@@ -393,7 +395,6 @@ const Reports = ({ reports, setReports, token }) => {
 
   const handleDelete = async (id) => {
     if (!window.confirm('Delete this report?')) return;
-    
     try {
       const res = await fetch(`${API_URL}/reports/${id}`, {
         method: 'DELETE',
@@ -405,6 +406,45 @@ const Reports = ({ reports, setReports, token }) => {
       }
     } catch (err) {
       console.error('Error deleting report:', err);
+    }
+  };
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setUploadingImage(true);
+    setOcrResult(null);
+
+    const formDataObj = new FormData();
+    formDataObj.append('image', file);
+
+    try {
+      const res = await fetch(`${API_URL}/ocr/extract`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formDataObj
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setOcrResult(data);
+        setFormData({
+          ...formData,
+          type: formData.type || 'Blood Test',
+          values: data.extractedData || {}
+        });
+      } else {
+        alert('Failed to extract text: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('OCR Error:', err);
+      alert('Error: Make sure backend is running on port 5000');
+    } finally {
+      setUploadingImage(false);
     }
   };
 
@@ -425,39 +465,189 @@ const Reports = ({ reports, setReports, token }) => {
         <div className="bg-white rounded-xl shadow-sm p-6">
           <h3 className="text-xl font-bold mb-4">New Report</h3>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Type + date */}
             <div className="grid grid-cols-2 gap-4">
               <input
                 type="text"
                 placeholder="Report Type (e.g., Blood Test)"
                 value={formData.type}
-                onChange={(e) => setFormData({...formData, type: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
                 className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 required
               />
               <input
                 type="date"
                 value={formData.date}
-                onChange={(e) => setFormData({...formData, date: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                 className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 required
               />
             </div>
+
+            {/* OCR Scan Button */}
+            <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <input
+                type="file"
+                id="ocr-upload"
+                accept="image/*,application/pdf"
+                onChange={handleImageUpload}
+                className="hidden"
+                disabled={uploadingImage}
+              />
+              <label
+                htmlFor="ocr-upload"
+                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold cursor-pointer transition ${
+                  uploadingImage
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
+                  />
+                </svg>
+                {uploadingImage ? 'Scanning...' : 'Scan Report'}
+              </label>
+              <span className="text-sm text-gray-600">
+                Click to upload and scan a medical report image or PDF
+              </span>
+            </div>
+
+            {/* Processing indicator */}
+            {uploadingImage && (
+              <div className="flex items-center gap-3 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-700">Processing file...</p>
+                  <p className="text-xs text-gray-500">Extracting text using OCR technology</p>
+                </div>
+              </div>
+            )
+
+            }
+
+            {/* OCR result: values + warnings + overall status */}
+            {ocrResult && (
+              <div className="space-y-3">
+                {/* Scan summary + detected values */}
+                <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="flex-1">
+                      <p className="text-green-700 font-semibold mb-2">✓ Scan Complete!</p>
+                      <p className="text-sm text-gray-600 mb-3">
+                        Extracted {Object.keys(ocrResult.extractedData || {}).length} values from the report
+                      </p>
+
+                      {/* Show Raw Text */}
+                      {ocrResult.rawText && (
+                        <details className="mb-3">
+                          <summary className="cursor-pointer text-xs font-semibold text-blue-600 hover:text-blue-700">
+                            📄 View extracted text
+                          </summary>
+                          <div className="mt-2 p-3 bg-gray-50 rounded text-xs max-h-40 overflow-y-auto border border-gray-200">
+                            <pre className="whitespace-pre-wrap font-mono">{ocrResult.rawText}</pre>
+                          </div>
+                        </details>
+                      )}
+
+                      {/* Detected values */}
+                      {Object.keys(ocrResult.extractedData || {}).length > 0 ? (
+                        <div className="bg-white p-3 rounded border border-green-200">
+                          <p className="text-xs font-semibold text-gray-700 mb-2">✅ Detected Values:</p>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            {Object.entries(ocrResult.extractedData).map(([key, value]) => (
+                              <div key={key} className="flex justify-between py-1 border-b border-gray-100 last:border-0">
+                                <span className="text-gray-600 font-medium">{key}:</span>
+                                <span className="font-semibold text-gray-800">{value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-yellow-50 p-3 rounded border border-yellow-200">
+                          <p className="text-xs text-yellow-800 font-medium">
+                            ⚠️ No medical values auto-detected.
+                          </p>
+                          <p className="text-xs text-yellow-700 mt-1">
+                            Click "View extracted text" above to see what was read, or manually enter values below.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Health warnings */}
+                {ocrResult.healthWarnings && ocrResult.healthWarnings.length > 0 && (
+                  <div className="p-4 bg-yellow-50 border border-yellow-300 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <svg className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <div className="flex-1">
+                        <h4 className="font-bold text-yellow-800 mb-2">⚠️ Health Alerts</h4>
+                        <div className="space-y-2">
+                          {ocrResult.healthWarnings.map((warning, index) => (
+                            <div key={index} className="p-2 bg-yellow-100 rounded border-l-4 border-yellow-500">
+                              <p className="text-sm text-yellow-900">{warning}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Overall status */}
+                {ocrResult.overallStatus && (
+                  <div
+                    className={`p-3 rounded-lg border text-center font-bold text-sm ${
+                      ocrResult.healthWarnings && ocrResult.healthWarnings.length > 0
+                        ? 'bg-yellow-50 border-yellow-300 text-yellow-800'
+                        : 'bg-green-50 border-green-300 text-green-800'
+                    }`}
+                  >
+                    {ocrResult.overallStatus}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Manual JSON edit */}
             <textarea
               placeholder='Report Values (JSON format, e.g., {"RBC": "4.5", "WBC": "7000"})'
               value={JSON.stringify(formData.values)}
               onChange={(e) => {
                 try {
-                  setFormData({...formData, values: JSON.parse(e.target.value)});
+                  setFormData({ ...formData, values: JSON.parse(e.target.value) });
                 } catch {}
               }}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               rows="4"
             />
+
+            {/* Buttons */}
             <div className="flex gap-3">
               <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">
                 Save Report
               </button>
-              <button type="button" onClick={() => setShowForm(false)} className="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300">
+              <button
+                type="button"
+                onClick={() => { setShowForm(false); setOcrResult(null); }}
+                className="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300"
+              >
                 Cancel
               </button>
             </div>
@@ -465,6 +655,7 @@ const Reports = ({ reports, setReports, token }) => {
         </div>
       )}
 
+      {/* Saved reports grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {reports.map(report => (
           <div key={report._id} className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
@@ -853,7 +1044,7 @@ const HealthChat = ({ chatHistory, setChatHistory, token }) => {
               className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
             >
               Send
-            </button>
+            </button>s
           </div>
         </div>
       </div>
