@@ -21,7 +21,10 @@ app.use("/api/disease", require("./routes/diseaseRoutes"));
 app.use("/api/routine", require("./routes/routineRoutes"));
 app.use("/api/chat", require("./routes/chatRoutes"));
 app.use("/api/clinics", require("./routes/clinicRoutes"));
-app.use("/api/ocr", require("./routes/ocrRoutes"));  // ← ADD THIS LINE
+app.use("/api/ocr", require("./routes/ocrRoutes")); 
+app.use("/api/user", require("./routes/userRoutes"));
+app.use("/uploads", express.static("uploads")); // serve images
+ // ← ADD THIS LINE
 
 
 // ✅ Root endpoint

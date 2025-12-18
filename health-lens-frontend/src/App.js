@@ -3,6 +3,24 @@ import { Heart, FileText, Syringe, Target, MapPin, MessageSquare, Activity, LogO
 
 const API_URL = 'http://localhost:5000/api'; // Change this to your backend URL
 
+// ✅ Add these helper functions here
+function getMoodKey(progress) {
+  if (progress === 0) return "very_low";
+  if (progress > 0 && progress < 50) return "medium";
+  if (progress >= 50 && progress < 90) return "high";
+  if (progress >= 90) return "very_high";
+}
+
+function getMoodEmoji(progress) {
+  if (progress === 0) return "😵‍💫";
+  if (progress > 0 && progress < 25) return "😞";
+  if (progress >= 25 && progress < 50) return "😕";
+  if (progress >= 50 && progress < 75) return "😐";
+  if (progress >= 75 && progress < 100) return "🙂";
+  if (progress === 100) return "😄";
+}
+
+
 const HealthLensApp = () => {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(null);
@@ -79,8 +97,10 @@ const HealthLensApp = () => {
               { id: 'diseases', icon: Heart, label: 'Diseases' },
               { id: 'vaccinations', icon: Syringe, label: 'Vaccinations' },
               { id: 'fitness', icon: Target, label: 'Fitness Goals' },
+               { id: 'routine', icon: Calendar, label: 'Daily Routine' },
               { id: 'clinics', icon: MapPin, label: 'Nearby Clinics' },
-              { id: 'chat', icon: MessageSquare, label: 'Health Chat' },
+              { id: 'chat', icon: MessageSquare, label: 'Health Chat' },{ id: 'profile', icon: User, label: 'Profile' },
+
             ].map(item => (
               <button
                 key={item.id}
@@ -119,11 +139,15 @@ const HealthLensApp = () => {
               {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
             
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
-                <User className="w-6 h-6 text-white" />
-              </div>
-            </div>
+           <div className="flex items-center gap-3">
+  <button 
+    onClick={() => setCurrentPage('profile')}
+    className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center hover:bg-blue-700 transition cursor-pointer"
+  >
+    <User className="w-6 h-6 text-white" />
+  </button>
+</div>
+
           </div>
         </header>
 
@@ -134,8 +158,11 @@ const HealthLensApp = () => {
           {currentPage === 'diseases' && <Diseases diseases={diseases} setDiseases={setDiseases} token={token} />}
           {currentPage === 'vaccinations' && <Vaccinations vaccinations={vaccinations} setVaccinations={setVaccinations} token={token} />}
           {currentPage === 'fitness' && <FitnessGoals goal={fitnessGoal} setGoal={setFitnessGoal} token={token} />}
+          {currentPage === 'routine' && <DailyRoutine token={token} user={user} />}  
           {currentPage === 'clinics' && <Clinics clinics={clinics} />}
           {currentPage === 'chat' && <HealthChat chatHistory={chatHistory} setChatHistory={setChatHistory} token={token} />}
+          {currentPage === 'profile' && <Profile token={token} user={user} setUser={setUser} />}
+
         </main>
       </div>
     </div>
@@ -172,7 +199,17 @@ const AuthPage = ({ setToken, setUser }) => {
       if (isLogin) {
         localStorage.setItem('token', data.token);
         setToken(data.token);
-        setUser(data.user);
+        // Fetch full user profile including moodPhotos
+  try {
+    const userRes = await fetch(`${API_URL}/user/me`, {
+      headers: { 'Authorization': `Bearer ${data.token}` }
+    });
+    const userData = await userRes.json();
+    setUser(userData);  // now includes moodPhotos
+  } catch (err) {
+    console.error('Failed to fetch user profile:', err);
+    setUser(data.user);  // fallback to login response user
+  }
       } else {
         setIsLogin(true);
         setError('Registration successful! Please login.');
@@ -816,8 +853,211 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
 };
 
 // Fitness Goals Component
+
+// Daily Routine Component
+const DailyRoutine = ({ diseases, token }) => {
+  const [routine, setRoutine] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchRoutine();
+  }, [diseases]);
+
+  const fetchRoutine = async () => {
+    try {
+      const res = await fetch(`${API_URL}/routine`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRoutine(data);
+      }
+    } catch (err) {
+      console.error('Error fetching routine:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="text-center py-8">Loading routine...</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-3xl font-bold text-gray-800">📅 Daily Routine</h2>
+
+      {routine.length === 0 ? (
+        <div className="text-center py-12 bg-white rounded-xl shadow-sm">
+          <div className="text-6xl mb-4">📋</div>
+          <h3 className="text-xl font-semibold text-gray-700 mb-2">No Routine Generated</h3>
+          <p className="text-gray-500">Add diseases to generate personalized daily tasks</p>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {routine.map((task, index) => (
+            <div key={index} className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Calendar className="w-6 h-6 text-blue-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-lg text-gray-800">{task.task}</h3>
+                  <p className="text-gray-600 text-sm mt-1">{task.time}</p>
+                  {task.notes && (
+                    <p className="text-gray-500 text-sm mt-2 italic">{task.notes}</p>
+                  )}
+                </div>
+                <button className="text-green-500 hover:text-green-700">
+                  <CheckCircle className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+// Nearby Clinics Component
+const Clinics = ({ clinics, token }) => {
+  return (
+    <div className="space-y-6">
+      <h2 className="text-3xl font-bold text-gray-800">📍 Nearby Clinics</h2>
+
+      {clinics.length === 0 ? (
+        <div className="text-center py-12 bg-white rounded-xl shadow-sm">
+          <MapPin className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-gray-700 mb-2">No Clinics Found</h3>
+          <p className="text-gray-500">Search for clinics near you</p>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {clinics.map((clinic, index) => (
+            <div key={index} className="bg-white rounded-xl shadow-sm p-6">
+              <h3 className="font-bold text-lg">{clinic.name}</h3>
+              <p className="text-gray-600">{clinic.address}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Health Chat Component
+const HealthChat = ({ chatHistory, setChatHistory, token }) => {
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const sendMessage = async () => {
+    if (!message.trim()) return;
+
+    const userMsg = { role: 'user', content: message };
+    setChatHistory([...chatHistory, userMsg]);
+    setMessage('');
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API_URL}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ message })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setChatHistory(prev => [...prev, { role: 'assistant', content: data.response }]);
+      }
+    } catch (err) {
+      console.error('Chat error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-3xl font-bold text-gray-800">💬 Health Chat</h2>
+
+      <div className="bg-white rounded-xl shadow-sm p-6 h-96 overflow-y-auto">
+        {chatHistory.map((msg, idx) => (
+          <div key={idx} className={`mb-4 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
+            <div className={`inline-block p-3 rounded-lg ${
+              msg.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-800'
+            }`}>
+              {msg.content}
+            </div>
+          </div>
+        ))}
+        {loading && <div className="text-center text-gray-500">Typing...</div>}
+      </div>
+
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+          placeholder="Ask a health question..."
+          className="flex-1 px-4 py-3 border border-gray-300 rounded-lg"
+        />
+        <button
+          onClick={sendMessage}
+          disabled={loading}
+          className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Profile Component
+const Profile = ({ user, token }) => {
+  return (
+    <div className="space-y-6">
+      <h2 className="text-3xl font-bold text-gray-800">👤 Profile</h2>
+
+      <div className="bg-white rounded-xl shadow-sm p-6">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-20 h-20 bg-blue-500 rounded-full flex items-center justify-center text-white text-3xl font-bold">
+            {user?.name?.charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <h3 className="text-xl font-bold">{user?.name}</h3>
+            <p className="text-gray-600">{user?.email}</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="border-t pt-4">
+            <p className="text-sm text-gray-600">Member since</p>
+            <p className="font-semibold">2025</p>
+          </div>
+          <div className="border-t pt-4">
+            <p className="text-sm text-gray-600">Health Score</p>
+            <p className="font-semibold text-green-600">85/100</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Enhanced Fitness Goals Component with 3 Wellness Pillars
+// Enhanced Fitness Goals Component with Activity Selection, Food Tracking & Meditation
 const FitnessGoals = ({ goal, setGoal, token }) => {
   const [editing, setEditing] = useState(false);
+  const [showActivities, setShowActivities] = useState(false);
+  const [showFoodTracker, setShowFoodTracker] = useState(false);
+  const [showMeditation, setShowMeditation] = useState(false);
   const [formData, setFormData] = useState(goal || {
     description: '',
     targetValue: '',
@@ -825,9 +1065,42 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
     endDate: ''
   });
 
+  // Fitness Activities
+  const fitnessActivities = [
+    { name: 'Running', emoji: '🏃', calories: '300-600', duration: '30 min' },
+    { name: 'Jogging', emoji: '🏃‍♀️', calories: '200-400', duration: '30 min' },
+    { name: 'Cycling', emoji: '🚴', calories: '250-500', duration: '30 min' },
+    { name: 'Swimming', emoji: '🏊', calories: '400-700', duration: '30 min' },
+    { name: 'Yoga', emoji: '🧘‍♀️', calories: '150-300', duration: '45 min' },
+    { name: 'Gym', emoji: '🏋️', calories: '300-600', duration: '60 min' },
+    { name: 'Walking', emoji: '🚶', calories: '150-250', duration: '30 min' },
+    { name: 'Dancing', emoji: '💃', calories: '200-400', duration: '30 min' },
+    { name: 'Jump Rope', emoji: '🤸', calories: '350-500', duration: '20 min' },
+    { name: 'Hiking', emoji: '🥾', calories: '400-600', duration: '60 min' },
+  ];
+
+  // Food Categories
+  const foodCategories = [
+    { name: 'Breakfast', emoji: '🍳', items: ['Oatmeal', 'Eggs', 'Toast', 'Smoothie', 'Cereal'] },
+    { name: 'Lunch', emoji: '🍱', items: ['Rice Bowl', 'Salad', 'Sandwich', 'Pasta', 'Soup'] },
+    { name: 'Dinner', emoji: '🍽️', items: ['Chicken', 'Fish', 'Vegetables', 'Curry', 'Steak'] },
+    { name: 'Snacks', emoji: '🍎', items: ['Fruits', 'Nuts', 'Yogurt', 'Protein Bar', 'Chips'] },
+    { name: 'Drinks', emoji: '🥤', items: ['Water', 'Juice', 'Coffee', 'Tea', 'Smoothie'] },
+  ];
+
+  // Meditation Types
+  const meditationTypes = [
+    { name: 'Breathing', emoji: '🌬️', duration: '5 min', benefit: 'Reduces stress' },
+    { name: 'Mindfulness', emoji: '🧠', duration: '10 min', benefit: 'Improves focus' },
+    { name: 'Body Scan', emoji: '🧘', duration: '15 min', benefit: 'Relaxes muscles' },
+    { name: 'Sleep', emoji: '😴', duration: '20 min', benefit: 'Better sleep' },
+    { name: 'Gratitude', emoji: '🙏', duration: '5 min', benefit: 'Positive mood' },
+    { name: 'Visualization', emoji: '✨', duration: '10 min', benefit: 'Clarity' },
+  ];
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     try {
       const res = await fetch(`${API_URL}/fitness/goal`, {
         method: 'POST',
@@ -850,206 +1123,292 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-3xl font-bold text-gray-800">Fitness Goals</h2>
+      <h2 className="text-3xl font-bold text-gray-800">🏥 Your Wellness Journey</h2>
+      <p className="text-gray-600">Track all aspects of your health in one place</p>
 
-      {!goal && !editing ? (
-        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
-          <Target className="w-16 h-16 text-purple-500 mx-auto mb-4" />
-          <h3 className="text-xl font-bold mb-2">No Fitness Goal Set</h3>
-          <p className="text-gray-500 mb-6">Set a goal to track your fitness progress</p>
-          <button
-            onClick={() => setEditing(true)}
-            className="bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700"
-          >
-            Set Your Goal
-          </button>
-        </div>
-      ) : editing ? (
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <h3 className="text-xl font-bold mb-4">Set Fitness Goal</h3>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <input
-              type="text"
-              placeholder="Goal Description (e.g., Run 5km daily)"
-              value={formData.description}
-              onChange={(e) => setFormData({...formData, description: e.target.value})}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg"
-              required
-            />
-            <div className="grid grid-cols-3 gap-4">
-              <input
-                type="number"
-                placeholder="Target Value"
-                value={formData.targetValue}
-                onChange={(e) => setFormData({...formData, targetValue: e.target.value})}
-                className="px-4 py-3 border border-gray-300 rounded-lg"
-              />
-              <input
-                type="text"
-                placeholder="Unit (e.g., km)"
-                value={formData.unit}
-                onChange={(e) => setFormData({...formData, unit: e.target.value})}
-                className="px-4 py-3 border border-gray-300 rounded-lg"
-                />
-              <input
-                type="date"
-                value={formData.endDate}
-                onChange={(e) => setFormData({...formData, endDate: e.target.value})}
-                className="px-4 py-3 border border-gray-300 rounded-lg"
-              />
+      {/* 3-Card Wellness Dashboard */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+        {/* Fitness Card */}
+        <div className="bg-gradient-to-br from-orange-400 to-red-500 rounded-xl shadow-lg p-6 text-white hover:shadow-2xl transition-all transform hover:scale-105">
+          <div className="flex items-center justify-between mb-4">
+            <div className="w-16 h-16 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+              <span className="text-4xl">💪</span>
             </div>
-            <div className="flex gap-3">
-              <button type="submit" className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700">
-                Save Goal
-              </button>
-              <button type="button" onClick={() => setEditing(false)} className="bg-gray-200 px-6 py-2 rounded-lg">
-                Cancel
-              </button>
+            <div className="text-right">
+              <p className="text-sm text-orange-100">Progress</p>
+              <p className="text-2xl font-bold">{goal ? '50%' : '0%'}</p>
             </div>
-          </form>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <div className="flex justify-between items-start mb-6">
-            <div>
-              <h3 className="text-2xl font-bold mb-2">{goal.description}</h3>
-              <p className="text-gray-500">Target: {goal.targetValue} {goal.unit}</p>
-              {goal.endDate && <p className="text-gray-500">End Date: {new Date(goal.endDate).toLocaleDateString()}</p>}
+          </div>
+
+          <h3 className="text-xl font-bold mb-2">FITNESS</h3>
+          <p className="text-orange-100 text-sm mb-4">
+            {goal ? goal.description : 'Choose your workout activity'}
+          </p>
+
+          <div className="flex items-center justify-between">
+            <div className="flex gap-1">
+              {[1,2,3,4,5].map(i => (
+                <div key={i} className={`w-2 h-2 rounded-full ${i <= 2 ? 'bg-white' : 'bg-white bg-opacity-30'}`}></div>
+              ))}
             </div>
-            <button
-              onClick={() => setEditing(true)}
-              className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
+            <button 
+              onClick={() => setShowActivities(true)}
+              className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
             >
-              Edit Goal
+              Set Goal →
             </button>
           </div>
-          {goal.achieved ? (
-            <div className="bg-green-100 text-green-700 p-4 rounded-lg flex items-center gap-2">
-              <CheckCircle className="w-6 h-6" />
-              <span className="font-semibold">Goal Achieved!</span>
+        </div>
+
+        {/* Diet/Nutrition Card */}
+        <div className="bg-gradient-to-br from-green-400 to-emerald-600 rounded-xl shadow-lg p-6 text-white hover:shadow-2xl transition-all transform hover:scale-105">
+          <div className="flex items-center justify-between mb-4">
+            <div className="w-16 h-16 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+              <span className="text-4xl">🍎</span>
             </div>
-          ) : (
-            <div className="bg-blue-100 text-blue-700 p-4 rounded-lg">
-              <span className="font-semibold">Keep going! You're working towards your goal.</span>
+            <div className="text-right">
+              <p className="text-sm text-green-100">Calories</p>
+              <p className="text-2xl font-bold">0%</p>
             </div>
-          )}
+          </div>
+
+          <h3 className="text-xl font-bold mb-2">NUTRITION</h3>
+          <p className="text-green-100 text-sm mb-4">
+            Track your daily meals and calories
+          </p>
+
+          <div className="flex items-center justify-between">
+            <div className="flex gap-1">
+              {[1,2,3,4,5].map(i => (
+                <div key={i} className="w-2 h-2 rounded-full bg-white bg-opacity-30"></div>
+              ))}
+            </div>
+            <button 
+              onClick={() => setShowFoodTracker(true)}
+              className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
+            >
+              Track Now →
+            </button>
+          </div>
+        </div>
+
+        {/* Mental Wellness Card */}
+        <div className="bg-gradient-to-br from-purple-400 to-indigo-600 rounded-xl shadow-lg p-6 text-white hover:shadow-2xl transition-all transform hover:scale-105">
+          <div className="flex items-center justify-between mb-4">
+            <div className="w-16 h-16 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+              <span className="text-4xl">🧘</span>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-purple-100">Mood</p>
+              <p className="text-2xl font-bold">😌</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-bold mb-2">MINDFULNESS</h3>
+          <p className="text-purple-100 text-sm mb-4">
+            Meditation, sleep & mental health
+          </p>
+
+          <div className="flex items-center justify-between">
+            <div className="flex gap-1">
+              {[1,2,3,4,5].map(i => (
+                <div key={i} className="w-2 h-2 rounded-full bg-white bg-opacity-30"></div>
+              ))}
+            </div>
+            <button 
+              onClick={() => setShowMeditation(true)}
+              className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
+            >
+              Meditate →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Stats Overview */}
+      <div className="bg-white rounded-xl shadow-sm p-6">
+        <h3 className="text-xl font-bold mb-4">📊 Wellness Stats</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="text-center p-4 bg-gray-50 rounded-lg">
+            <p className="text-3xl font-bold text-orange-500">0</p>
+            <p className="text-sm text-gray-600">Workouts this week</p>
+          </div>
+          <div className="text-center p-4 bg-gray-50 rounded-lg">
+            <p className="text-3xl font-bold text-green-500">0</p>
+            <p className="text-sm text-gray-600">Calories tracked</p>
+          </div>
+          <div className="text-center p-4 bg-gray-50 rounded-lg">
+            <p className="text-3xl font-bold text-purple-500">0</p>
+            <p className="text-sm text-gray-600">Meditation streak</p>
+          </div>
+          <div className="text-center p-4 bg-gray-50 rounded-lg">
+            <p className="text-3xl font-bold text-blue-500">--</p>
+            <p className="text-sm text-gray-600">Sleep quality</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Activity Selection Modal */}
+      {showActivities && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-bold">💪 Choose Your Activity</h3>
+              <button onClick={() => setShowActivities(false)} className="text-gray-500 hover:text-gray-700">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              {fitnessActivities.map((activity, idx) => (
+                <div 
+                  key={idx}
+                  onClick={() => {
+                    setFormData({...formData, description: activity.name});
+                    setShowActivities(false);
+                    setEditing(true);
+                  }}
+                  className="bg-orange-50 rounded-xl p-4 text-center cursor-pointer hover:bg-orange-100 transition transform hover:scale-105"
+                >
+                  <div className="text-5xl mb-2">{activity.emoji}</div>
+                  <h4 className="font-bold text-gray-800">{activity.name}</h4>
+                  <p className="text-xs text-gray-600 mt-1">{activity.duration}</p>
+                  <p className="text-xs text-orange-600 font-semibold">{activity.calories} cal</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
-    </div>
-  );
-};
 
-// Clinics Component
-const Clinics = ({ clinics }) => {
-  return (
-    <div className="space-y-6">
-      <h2 className="text-3xl font-bold text-gray-800">Nearby Clinics</h2>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {clinics.map(clinic => (
-          <div key={clinic._id} className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
-            <MapPin className="w-10 h-10 text-blue-500 mb-3" />
-            <h3 className="font-bold text-lg mb-2">{clinic.name}</h3>
-            <p className="text-sm text-gray-600 mb-2">{clinic.address}</p>
-            {clinic.contactNumber && (
-              <p className="text-sm text-blue-600">📞 {clinic.contactNumber}</p>
-            )}
-            <p className="text-xs text-gray-500 mt-2">{clinic.type}</p>
+      {/* Food Tracker Modal */}
+      {showFoodTracker && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-bold">🍎 Track Your Food</h3>
+              <button onClick={() => setShowFoodTracker(false)} className="text-gray-500 hover:text-gray-700">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {foodCategories.map((category, idx) => (
+                <div key={idx} className="bg-green-50 rounded-xl p-4">
+                  <h4 className="font-bold text-lg mb-3 flex items-center gap-2">
+                    <span className="text-2xl">{category.emoji}</span>
+                    {category.name}
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    {category.items.map((item, i) => (
+                      <button
+                        key={i}
+                        className="bg-white rounded-lg p-3 text-center hover:bg-green-100 transition border border-green-200"
+                      >
+                        <p className="text-sm font-semibold text-gray-800">{item}</p>
+                        <p className="text-xs text-gray-500 mt-1">Add +</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        ))}
-        {clinics.length === 0 && (
-          <div className="col-span-3 text-center py-12 text-gray-500">
-            No clinics found nearby
+        </div>
+      )}
+
+      {/* Meditation Modal */}
+      {showMeditation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-3xl w-full">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-bold">🧘 Choose Meditation</h3>
+              <button onClick={() => setShowMeditation(false)} className="text-gray-500 hover:text-gray-700">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {meditationTypes.map((type, idx) => (
+                <div 
+                  key={idx}
+                  className="bg-purple-50 rounded-xl p-6 cursor-pointer hover:bg-purple-100 transition transform hover:scale-105"
+                >
+                  <div className="text-5xl mb-3 text-center">{type.emoji}</div>
+                  <h4 className="font-bold text-center text-gray-800 mb-2">{type.name}</h4>
+                  <p className="text-sm text-center text-purple-600 font-semibold mb-1">{type.duration}</p>
+                  <p className="text-xs text-center text-gray-600">{type.benefit}</p>
+                  <button className="w-full mt-3 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition">
+                    Start
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
-        )}
+        </div>
+      )}
+
+      {/* Fitness Goal Editor (Modal) */}
+      {editing && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full">
+            <h3 className="text-xl font-bold mb-4">Set Fitness Goal</h3>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <input
+                type="text"
+                placeholder="Goal Description (e.g., Running)"
+                value={formData.description}
+                onChange={(e) => setFormData({...formData, description: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                required
+              />
+              <div className="grid grid-cols-3 gap-4">
+                <input
+                  type="number"
+                  placeholder="Target"
+                  value={formData.targetValue}
+                  onChange={(e) => setFormData({...formData, targetValue: e.target.value})}
+                  className="px-4 py-3 border border-gray-300 rounded-lg"
+                />
+                <input
+                  type="text"
+                  placeholder="Unit"
+                  value={formData.unit}
+                  onChange={(e) => setFormData({...formData, unit: e.target.value})}
+                  className="px-4 py-3 border border-gray-300 rounded-lg"
+                />
+                <input
+                  type="date"
+                  value={formData.endDate}
+                  onChange={(e) => setFormData({...formData, endDate: e.target.value})}
+                  className="px-4 py-3 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div className="flex gap-3">
+                <button type="submit" className="flex-1 bg-orange-600 text-white px-6 py-2 rounded-lg hover:bg-orange-700">
+                  Save Goal
+                </button>
+                <button type="button" onClick={() => setEditing(false)} className="flex-1 bg-gray-200 px-6 py-2 rounded-lg">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Motivational Tip */}
+      <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
+        <p className="text-sm font-semibold text-blue-800">💡 Quick Tip</p>
+        <p className="text-sm text-blue-700 mt-1">
+          Set specific, measurable goals for better results. Track your progress in Daily Routine!
+        </p>
       </div>
     </div>
   );
 };
 
-// Health Chat Component
-const HealthChat = ({ chatHistory, setChatHistory, token }) => {
-  const [message, setMessage] = useState('');
-  const [sending, setSending] = useState(false);
 
-  const handleSend = async () => {
-    if (!message.trim()) return;
-
-    const newMsg = { sender: 'user', text: message, timestamp: new Date() };
-    const updatedHistory = [...chatHistory, newMsg];
-    setChatHistory(updatedHistory);
-    setMessage('');
-    setSending(true);
-
-    // Simulate bot response (you can integrate actual AI API here)
-    setTimeout(() => {
-      const botMsg = { sender: 'bot', text: 'Thank you for your message. I am here to help with your health queries!', timestamp: new Date() };
-      const finalHistory = [...updatedHistory, botMsg];
-      setChatHistory(finalHistory);
-      
-      // Save to backend
-      fetch(`${API_URL}/chat/save`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ messages: [newMsg, botMsg] })
-      });
-      
-      setSending(false);
-    }, 1000);
-  };
-
-  return (
-    <div className="space-y-6">
-      <h2 className="text-3xl font-bold text-gray-800">Health Assistant</h2>
-      
-      <div className="bg-white rounded-xl shadow-sm h-[600px] flex flex-col">
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {chatHistory.map((msg, idx) => (
-            <div key={idx} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-xs px-4 py-3 rounded-lg ${
-                msg.sender === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'
-              }`}>
-                <p>{msg.text}</p>
-                <p className="text-xs mt-1 opacity-70">
-                  {new Date(msg.timestamp).toLocaleTimeString()}
-                </p>
-              </div>
-            </div>
-          ))}
-          {sending && (
-            <div className="flex justify-start">
-              <div className="bg-gray-100 px-4 py-3 rounded-lg">
-                <p className="text-gray-600">Typing...</p>
-              </div>
-            </div>
-          )}
-        </div>
-        
-        <div className="border-t p-4">
-          <div className="flex gap-3">
-            <input
-              type="text"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Ask about your health..."
-              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              onClick={handleSend}
-              disabled={sending}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
-            >
-              Send
-            </button>s
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 export default HealthLensApp;
