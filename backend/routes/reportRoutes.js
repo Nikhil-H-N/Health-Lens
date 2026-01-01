@@ -6,14 +6,19 @@ const auth = require("../middleware/authMiddleware");
 // ✅ POST /api/reports/upload - Upload a new report
 router.post("/upload", auth, async (req, res) => {
   try {
-    const { type, date, values, suggestions } = req.body;
+    const {
+      type,
+      date,
+      values,
+      suggestions,
+    } = req.body;
 
     if (!type || !date || !values) {
       return res.status(400).json({ error: "Type, date, and values are required" });
     }
 
     const newReport = new Report({
-      user_id: req.user.id, // comes from verified token
+      user_id: req.user.id,
       type,
       date,
       values,

@@ -36,6 +36,8 @@ const HealthLensApp = () => {
   const [clinics, setClinics] = useState([]);
   const [chatHistory, setChatHistory] = useState([]);
 
+
+
   useEffect(() => {
     if (token) {
       fetchUserData();
@@ -44,16 +46,29 @@ const HealthLensApp = () => {
 
   const fetchUserData = async () => {
     try {
-      const headers = { Authorization: `Bearer ${token}` };
-      
-      const [reportsRes, diseasesRes, vaccinesRes, goalRes, clinicsRes, chatRes] = await Promise.all([
-        fetch(`${API_URL}/reports`, { headers }),
-        fetch(`${API_URL}/diseases`, { headers }),
-        fetch(`${API_URL}/vaccinations`, { headers }),
-        fetch(`${API_URL}/fitness/goal`, { headers }),
-        fetch(`${API_URL}/clinics/nearby`, { headers }),
-        fetch(`${API_URL}/chat`, { headers })
-      ]);
+      const token = localStorage.getItem("token");
+
+      if (!token) {
+        console.error("No token found in localStorage");
+        return;
+      }
+
+      const headers = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      };
+
+
+      const [reportsRes, diseasesRes, vaccinesRes, goalRes, clinicsRes, chatRes] =
+        await Promise.all([
+          fetch(`${API_URL}/reports`, { headers }),
+          fetch(`${API_URL}/disease`, { headers }),        // ✅ FIXED
+          fetch(`${API_URL}/vaccination`, { headers }),    // ✅ FIXED
+          fetch(`${API_URL}/fitness/goal`, { headers }),   // ✅ OK
+          fetch(`${API_URL}/clinics`, { headers }),        // ✅ FIXED
+          fetch(`${API_URL}/chat`, { headers })
+        ]);
+
 
       if (reportsRes.ok) setReports(await reportsRes.json());
       if (diseasesRes.ok) setDiseases(await diseasesRes.json());
@@ -89,7 +104,7 @@ const HealthLensApp = () => {
             <Heart className="w-8 h-8" />
             <h1 className="text-2xl font-bold">Health Lens</h1>
           </div>
-          
+
           <nav className="space-y-2">
             {[
               { id: 'dashboard', icon: Activity, label: 'Dashboard' },
@@ -97,17 +112,16 @@ const HealthLensApp = () => {
               { id: 'diseases', icon: Heart, label: 'Diseases' },
               { id: 'vaccinations', icon: Syringe, label: 'Vaccinations' },
               { id: 'fitness', icon: Target, label: 'Fitness Goals' },
-               { id: 'routine', icon: Calendar, label: 'Daily Routine' },
+              { id: 'routine', icon: Calendar, label: 'Daily Routine' },
               { id: 'clinics', icon: MapPin, label: 'Nearby Clinics' },
-              { id: 'chat', icon: MessageSquare, label: 'Health Chat' },{ id: 'profile', icon: User, label: 'Profile' },
+              { id: 'chat', icon: MessageSquare, label: 'Health Chat' }, { id: 'profile', icon: User, label: 'Profile' },
 
             ].map(item => (
               <button
                 key={item.id}
                 onClick={() => setCurrentPage(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                  currentPage === item.id ? 'bg-white text-blue-600' : 'hover:bg-blue-700'
-                }`}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${currentPage === item.id ? 'bg-white text-blue-600' : 'hover:bg-blue-700'
+                  }`}
               >
                 <item.icon className="w-5 h-5" />
                 <span>{item.label}</span>
@@ -138,15 +152,15 @@ const HealthLensApp = () => {
             >
               {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
-            
-           <div className="flex items-center gap-3">
-  <button 
-    onClick={() => setCurrentPage('profile')}
-    className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center hover:bg-blue-700 transition cursor-pointer"
-  >
-    <User className="w-6 h-6 text-white" />
-  </button>
-</div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setCurrentPage('profile')}
+                className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center hover:bg-blue-700 transition cursor-pointer"
+              >
+                <User className="w-6 h-6 text-white" />
+              </button>
+            </div>
 
           </div>
         </header>
@@ -158,7 +172,7 @@ const HealthLensApp = () => {
           {currentPage === 'diseases' && <Diseases diseases={diseases} setDiseases={setDiseases} token={token} />}
           {currentPage === 'vaccinations' && <Vaccinations vaccinations={vaccinations} setVaccinations={setVaccinations} token={token} />}
           {currentPage === 'fitness' && <FitnessGoals goal={fitnessGoal} setGoal={setFitnessGoal} token={token} />}
-          {currentPage === 'routine' && <DailyRoutine token={token} user={user} />}  
+          {currentPage === 'routine' && <DailyRoutine token={token} user={user} />}
           {currentPage === 'clinics' && <Clinics clinics={clinics} />}
           {currentPage === 'chat' && <HealthChat chatHistory={chatHistory} setChatHistory={setChatHistory} token={token} />}
           {currentPage === 'profile' && <Profile token={token} user={user} setUser={setUser} />}
@@ -200,16 +214,16 @@ const AuthPage = ({ setToken, setUser }) => {
         localStorage.setItem('token', data.token);
         setToken(data.token);
         // Fetch full user profile including moodPhotos
-  try {
-    const userRes = await fetch(`${API_URL}/user/me`, {
-      headers: { 'Authorization': `Bearer ${data.token}` }
-    });
-    const userData = await userRes.json();
-    setUser(userData);  // now includes moodPhotos
-  } catch (err) {
-    console.error('Failed to fetch user profile:', err);
-    setUser(data.user);  // fallback to login response user
-  }
+        try {
+          const userRes = await fetch(`${API_URL}/user/me`, {
+            headers: { 'Authorization': `Bearer ${data.token}` }
+          });
+          const userData = await userRes.json();
+          setUser(userData);  // now includes moodPhotos
+        } catch (err) {
+          console.error('Failed to fetch user profile:', err);
+          setUser(data.user);  // fallback to login response user
+        }
       } else {
         setIsLogin(true);
         setError('Registration successful! Please login.');
@@ -230,17 +244,15 @@ const AuthPage = ({ setToken, setUser }) => {
         <div className="flex gap-2 mb-6">
           <button
             onClick={() => setIsLogin(true)}
-            className={`flex-1 py-2 rounded-lg font-semibold transition ${
-              isLogin ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-            }`}
+            className={`flex-1 py-2 rounded-lg font-semibold transition ${isLogin ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+              }`}
           >
             Login
           </button>
           <button
             onClick={() => setIsLogin(false)}
-            className={`flex-1 py-2 rounded-lg font-semibold transition ${
-              !isLogin ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-            }`}
+            className={`flex-1 py-2 rounded-lg font-semibold transition ${!isLogin ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+              }`}
           >
             Register
           </button>
@@ -252,26 +264,26 @@ const AuthPage = ({ setToken, setUser }) => {
               type="text"
               placeholder="Full Name"
               value={formData.name}
-              onChange={(e) => setFormData({...formData, name: e.target.value})}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               required
             />
           )}
-          
+
           <input
             type="email"
             placeholder="Email"
             value={formData.email}
-            onChange={(e) => setFormData({...formData, email: e.target.value})}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             required
           />
-          
+
           <input
             type="password"
             placeholder="Password"
             value={formData.password}
-            onChange={(e) => setFormData({...formData, password: e.target.value})}
+            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             required
           />
@@ -282,21 +294,21 @@ const AuthPage = ({ setToken, setUser }) => {
                 type="number"
                 placeholder="Age"
                 value={formData.age}
-                onChange={(e) => setFormData({...formData, age: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, age: e.target.value })}
                 className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
               <input
                 type="number"
                 placeholder="Height (cm)"
                 value={formData.height}
-                onChange={(e) => setFormData({...formData, height: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, height: e.target.value })}
                 className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
               <input
                 type="number"
                 placeholder="Weight (kg)"
                 value={formData.weight}
-                onChange={(e) => setFormData({...formData, weight: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
                 className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -325,12 +337,12 @@ const Dashboard = ({ reports, diseases, vaccinations, fitnessGoal }) => {
   return (
     <div className="space-y-6">
       <h2 className="text-3xl font-bold text-gray-800">Dashboard</h2>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard icon={FileText} label="Total Reports" value={reports.length} color="blue" />
         <StatCard icon={Heart} label="Diseases Tracked" value={diseases.length} color="red" />
         <StatCard icon={Syringe} label="Vaccinations" value={vaccinations.length} color="green" />
-        <StatCard icon={Target} label="Fitness Goal" value={fitnessGoal ? 'Active' : 'None'} color="purple" />
+        <StatCard icon={Target} label="Fitness Goal" value={!fitnessGoal ? "None" : fitnessGoal.status === "completed" ? "Completed" : "Active"} color="purple" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -400,10 +412,15 @@ const Reports = ({ reports, setReports, token }) => {
   const [showForm, setShowForm] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [ocrResult, setOcrResult] = useState(null);
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [filterType, setFilterType] = useState("ALL");
   const [formData, setFormData] = useState({
     type: '',
     date: new Date().toISOString().split('T')[0],
-    values: {}
+    values: {},
+    suggestions: [],                        // AI health warnings
+    abnormalParameters: [],                 // Optional (future use)
+    overallStatus: ''                       // Summary text
   });
 
   const handleSubmit = async (e) => {
@@ -415,7 +432,13 @@ const Reports = ({ reports, setReports, token }) => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({
+          type: formData.type,
+          date: formData.date,
+          values: formData.values,
+          suggestions: ocrResult?.healthWarnings || []
+        })
+
       });
 
       if (res.ok) {
@@ -455,6 +478,7 @@ const Reports = ({ reports, setReports, token }) => {
 
     const formDataObj = new FormData();
     formDataObj.append('image', file);
+    formDataObj.append("reportType", formData.type);
 
     try {
       const res = await fetch(`${API_URL}/ocr/extract`, {
@@ -469,11 +493,16 @@ const Reports = ({ reports, setReports, token }) => {
 
       if (res.ok) {
         setOcrResult(data);
-        setFormData({
-          ...formData,
-          type: formData.type || 'Blood Test',
-          values: data.extractedData || {}
-        });
+
+        setFormData((prev) => ({
+          ...prev,
+          // ❌ do NOT auto-set report type
+          values: data.extractedData || {},
+          suggestions: data.healthWarnings || [],
+          abnormalParameters: data.abnormalParameters || [],
+          overallStatus: data.overallStatus || ""
+        }));
+
       } else {
         alert('Failed to extract text: ' + (data.error || 'Unknown error'));
       }
@@ -503,22 +532,38 @@ const Reports = ({ reports, setReports, token }) => {
           <h3 className="text-xl font-bold mb-4">New Report</h3>
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Type + date */}
-            <div className="grid grid-cols-2 gap-4">
-              <input
-                type="text"
-                placeholder="Report Type (e.g., Blood Test)"
-                value={formData.type}
-                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                required
-              />
-              <input
-                type="date"
-                value={formData.date}
-                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                required
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Report Type */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Report Type
+                </label>
+                <select
+                  value={formData.type}
+                  onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  required
+                >
+                  <option value="">Select Report Type</option>
+                  <option value="Blood">Blood Report</option>
+                  <option value="Urine">Urine Report</option>
+                </select>
+              </div>
+
+              {/* Report Date */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Report Date (Date Received)
+                </label>
+                <input
+                  type="date"
+                  value={formData.date}
+                  max={new Date().toISOString().split("T")[0]} // ⛔ future dates blocked
+                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
             </div>
 
             {/* OCR Scan Button */}
@@ -533,11 +578,10 @@ const Reports = ({ reports, setReports, token }) => {
               />
               <label
                 htmlFor="ocr-upload"
-                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold cursor-pointer transition ${
-                  uploadingImage
-                    ? 'bg-gray-400 cursor-not-allowed'
-                    : 'bg-blue-600 hover:bg-blue-700 text-white'
-                }`}
+                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold cursor-pointer transition ${uploadingImage
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}
               >
                 <svg
                   className="w-5 h-5"
@@ -558,6 +602,57 @@ const Reports = ({ reports, setReports, token }) => {
                 Click to upload and scan a medical report image or PDF
               </span>
             </div>
+            {/* 🔍 OCR Preview Section (Shown after scan) */}
+            {ocrResult && (
+              <div className="mt-6 space-y-4">
+
+                {/* Overall Status */}
+                {formData.overallStatus && (
+                  <div className="p-4 rounded-lg border text-sm font-semibold
+                                  bg-green-50 border-green-300 text-green-800">
+                    {formData.overallStatus}
+                  </div>
+                )}
+
+                {/* Extracted Values */}
+                <div className="bg-white border rounded-lg p-4">
+                  <h4 className="font-bold text-gray-800 mb-3">
+                    📊 Extracted Report Values
+                  </h4>
+
+                  {Object.keys(formData.values).length === 0 ? (
+                    <p className="text-sm text-gray-500">No values detected</p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {Object.entries(formData.values).map(([key, value]) => (
+                        <div
+                          key={key}
+                          className="flex justify-between items-center p-2 bg-gray-50 rounded border"
+                        >
+                          <span className="font-medium text-gray-700">{key}</span>
+                          <span className="text-sm text-gray-800">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Abnormalities / Warnings */}
+                {formData.suggestions.length > 0 && (
+                  <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4">
+                    <h4 className="font-bold text-yellow-800 mb-2">
+                      ⚠️ Abnormal Findings
+                    </h4>
+                    <ul className="list-disc list-inside space-y-1 text-sm text-yellow-900">
+                      {formData.suggestions.map((warn, i) => (
+                        <li key={i}>{warn}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+              </div>
+            )}
 
             {/* Processing indicator */}
             {uploadingImage && (
@@ -650,11 +745,10 @@ const Reports = ({ reports, setReports, token }) => {
                 {/* Overall status */}
                 {ocrResult.overallStatus && (
                   <div
-                    className={`p-3 rounded-lg border text-center font-bold text-sm ${
-                      ocrResult.healthWarnings && ocrResult.healthWarnings.length > 0
-                        ? 'bg-yellow-50 border-yellow-300 text-yellow-800'
-                        : 'bg-green-50 border-green-300 text-green-800'
-                    }`}
+                    className={`p-3 rounded-lg border text-center font-bold text-sm ${ocrResult.healthWarnings && ocrResult.healthWarnings.length > 0
+                      ? 'bg-yellow-50 border-yellow-300 text-yellow-800'
+                      : 'bg-green-50 border-green-300 text-green-800'
+                      }`}
                   >
                     {ocrResult.overallStatus}
                   </div>
@@ -662,18 +756,7 @@ const Reports = ({ reports, setReports, token }) => {
               </div>
             )}
 
-            {/* Manual JSON edit */}
-            <textarea
-              placeholder='Report Values (JSON format, e.g., {"RBC": "4.5", "WBC": "7000"})'
-              value={JSON.stringify(formData.values)}
-              onChange={(e) => {
-                try {
-                  setFormData({ ...formData, values: JSON.parse(e.target.value) });
-                } catch {}
-              }}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              rows="4"
-            />
+
 
             {/* Buttons */}
             <div className="flex gap-3">
@@ -691,31 +774,138 @@ const Reports = ({ reports, setReports, token }) => {
           </form>
         </div>
       )}
+      <div className="flex gap-3 mb-6">
+        <button
+          onClick={() => setFilterType("ALL")}
+          className={`px-4 py-2 rounded-lg ${filterType === "ALL" ? "bg-blue-600 text-white" : "bg-gray-200"
+            }`}
+        >
+          All
+        </button>
 
-      {/* Saved reports grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {reports.map(report => (
-          <div key={report._id} className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h3 className="font-bold text-lg">{report.type}</h3>
-                <p className="text-sm text-gray-500">{new Date(report.date).toLocaleDateString()}</p>
-              </div>
-              <button onClick={() => handleDelete(report._id)} className="text-red-500 hover:text-red-700">
-                <Trash2 className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="space-y-2">
-              {Object.entries(report.values).map(([key, value]) => (
-                <div key={key} className="flex justify-between text-sm">
-                  <span className="text-gray-600">{key}:</span>
-                  <span className="font-semibold">{value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
+        <button
+          onClick={() => setFilterType("Blood")}
+          className={`px-4 py-2 rounded-lg ${filterType === "Blood" ? "bg-red-600 text-white" : "bg-gray-200"
+            }`}
+        >
+          Blood Reports
+        </button>
+
+        <button
+          onClick={() => setFilterType("Urine")}
+          className={`px-4 py-2 rounded-lg ${filterType === "Urine" ? "bg-yellow-600 text-white" : "bg-gray-200"
+            }`}
+        >
+          Urine Reports
+        </button>
       </div>
+
+      {/* Saved reports grid (SUMMARY VIEW ONLY) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {reports
+          .filter(report => {
+            if (filterType === "ALL") return true;
+            if (filterType === "Blood") return report.type.toLowerCase().includes("blood");
+            if (filterType === "Urine") return report.type.toLowerCase().includes("urine");
+            return true;
+          })
+          .map(report => (
+            <div
+              key={report._id}
+              onClick={() => setSelectedReport(report)}
+              className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition cursor-pointer"
+            >
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <h3 className="font-bold text-lg">{report.type}</h3>
+                  <p className="text-sm text-gray-500">
+                    {new Date(report.date).toLocaleDateString()}
+                  </p>
+                  <p className="text-sm mt-1 text-gray-600">
+                    Status: {report.suggestions?.length > 0
+                      ? `⚠ ${report.suggestions.length} abnormality(s)`
+                      : "✅ Normal"}
+                  </p>
+                </div>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation(); // 🔥 IMPORTANT: prevents modal opening
+                    handleDelete(report._id);
+                  }}
+                  className="text-red-500 hover:text-red-700"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+              </div>
+
+              <p
+                className={`text-sm font-semibold ${report.suggestions?.length > 0
+                  ? "text-yellow-600"
+                  : "text-green-600"
+                  }`}
+              >
+                {report.suggestions?.length > 0
+                  ? `⚠ ${report.suggestions.length} abnormalities`
+                  : "✅ All parameters normal"}
+              </p>
+            </div>
+          ))
+        }
+      </div>
+      {selectedReport && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-[500px] max-h-[80vh] overflow-y-auto">
+
+            <h2 className="text-xl font-bold mb-1">
+              {selectedReport.type}
+            </h2>
+            <p className="text-sm text-gray-500 mb-4">
+              {new Date(selectedReport.date).toLocaleDateString()}
+            </p>
+
+            {/* Extracted Values */}
+            <div className="space-y-2">
+              {Object.entries(selectedReport.values).map(([key, value]) => {
+                const isAbnormal =
+                  selectedReport.abnormalParameters?.includes(key);
+
+                return (
+                  <div
+                    key={key}
+                    className={`flex justify-between py-1 text-sm border-b ${isAbnormal
+                        ? "text-red-600 font-semibold"
+                        : "text-gray-700"
+                      }`}
+                  >
+                    <span>{key}</span>
+                    <span>{value}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Warnings */}
+            {selectedReport.suggestions?.length > 0 && (
+              <div className="mt-4 bg-yellow-50 border border-yellow-200 p-3 rounded">
+                <h4 className="font-bold text-yellow-800 mb-2">⚠ Warnings</h4>
+                <ul className="list-disc ml-4 text-sm text-yellow-700">
+                  {selectedReport.suggestions.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <button
+              onClick={() => setSelectedReport(null)}
+              className="mt-4 bg-gray-200 px-4 py-2 rounded hover:bg-gray-300"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -725,7 +915,7 @@ const Diseases = ({ diseases, setDiseases, token }) => {
   return (
     <div className="space-y-6">
       <h2 className="text-3xl font-bold text-gray-800">Disease Tracking</h2>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {diseases.map(disease => (
           <div key={disease._id} className="bg-white rounded-xl shadow-sm p-6">
@@ -756,7 +946,7 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     try {
       const res = await fetch(`${API_URL}/vaccinations/add`, {
         method: 'POST',
@@ -799,7 +989,7 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
               type="text"
               placeholder="Vaccine Name"
               value={formData.name}
-              onChange={(e) => setFormData({...formData, name: e.target.value})}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg"
               required
             />
@@ -809,7 +999,7 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
                 <input
                   type="date"
                   value={formData.date}
-                  onChange={(e) => setFormData({...formData, date: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg"
                   required
                 />
@@ -819,7 +1009,7 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
                 <input
                   type="date"
                   value={formData.renewalDate}
-                  onChange={(e) => setFormData({...formData, renewalDate: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, renewalDate: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg"
                 />
               </div>
@@ -853,6 +1043,7 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
 };
 
 // Fitness Goals Component
+
 
 // Daily Routine Component
 const DailyRoutine = ({ diseases, token }) => {
@@ -988,9 +1179,8 @@ const HealthChat = ({ chatHistory, setChatHistory, token }) => {
       <div className="bg-white rounded-xl shadow-sm p-6 h-96 overflow-y-auto">
         {chatHistory.map((msg, idx) => (
           <div key={idx} className={`mb-4 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
-            <div className={`inline-block p-3 rounded-lg ${
-              msg.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-800'
-            }`}>
+            <div className={`inline-block p-3 rounded-lg ${msg.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-800'
+              }`}>
               {msg.content}
             </div>
           </div>
@@ -1054,16 +1244,77 @@ const Profile = ({ user, token }) => {
 // Enhanced Fitness Goals Component with 3 Wellness Pillars
 // Enhanced Fitness Goals Component with Activity Selection, Food Tracking & Meditation
 const FitnessGoals = ({ goal, setGoal, token }) => {
+  const [progress, setProgress] = useState(0);
+  const [weeklyMinutes, setWeeklyMinutes] = useState(0);
   const [editing, setEditing] = useState(false);
   const [showActivities, setShowActivities] = useState(false);
   const [showFoodTracker, setShowFoodTracker] = useState(false);
   const [showMeditation, setShowMeditation] = useState(false);
-  const [formData, setFormData] = useState(goal || {
-    description: '',
-    targetValue: '',
-    unit: '',
+  const [showDurationModal, setShowDurationModal] = useState(false);
+  const [exerciseMinutes, setExerciseMinutes] = useState("");
+
+  const [formData, setFormData] = useState({
+    description: goal?.goal || '',
+    targetValue: goal?.targetMinutes || '',
+    unit: 'minutes',
     endDate: ''
   });
+  const isGoalCompleted = progress >= 100;
+  const activeDots = Math.min(5, Math.ceil(progress / 20));
+  const today = new Date().toISOString().split("T")[0];
+
+
+  const fetchProgress = async () => {
+    try {
+      const res = await fetch(`${API_URL}/fitness/progress`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+      });
+      const data = await res.json();
+      setProgress(data.progress || 0);
+      setWeeklyMinutes(data.totalMinutes || 0);
+    } catch (err) {
+      console.error("Failed to fetch progress", err);
+    }
+  };
+  const logWorkout = async (activity, duration) => {
+    try {
+      await fetch(`${API_URL}/fitness/activity`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({
+          activity,
+          duration,
+        }),
+      });
+
+      fetchProgress(); // refresh UI
+    } catch (err) {
+      console.error("Error logging workout", err);
+    }
+  };
+
+  useEffect(() => {
+    if (goal) {
+      fetchProgress();
+    }
+  }, [goal]);
+  useEffect(() => {
+    if (goal) {
+      setFormData({
+        description: goal.goal,
+        targetValue: goal.targetMinutes,
+        unit: "minutes",
+        endDate: "",
+      });
+    }
+  }, [goal]);
+
+
 
   // Fitness Activities
   const fitnessActivities = [
@@ -1101,25 +1352,44 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (!formData.description || !formData.targetValue) {
+      alert("Please enter activity and target minutes");
+      return;
+    }
+
     try {
       const res = await fetch(`${API_URL}/fitness/goal`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({
+          goal: formData.description,
+          targetMinutes: Number(formData.targetValue),
+          endDate: formData.endDate,
+        }),
       });
 
-      if (res.ok) {
-        const updated = await res.json();
-        setGoal(updated);
-        setEditing(false);
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error("Backend error:", data);
+        alert(data.error || "Request failed");
+        return;
       }
+
+      setGoal(data);
+      setEditing(false);
+
     } catch (err) {
-      console.error('Error updating goal:', err);
+      console.error("Network error:", err);
+      alert("Network error");
     }
   };
+
+
+
 
   return (
     <div className="space-y-6">
@@ -1137,27 +1407,122 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
             </div>
             <div className="text-right">
               <p className="text-sm text-orange-100">Progress</p>
-              <p className="text-2xl font-bold">{goal ? '50%' : '0%'}</p>
+              <p className="text-2xl font-bold">
+                {isGoalCompleted ? "🎉 Completed" : `${progress}%`}
+              </p>
+
+              <p className="text-xs opacity-80">
+                {weeklyMinutes} / {goal?.targetMinutes} minutes
+              </p>
+              {goal?.endDate && (
+                <div className="mt-2 bg-white bg-opacity-20 px-3 py-1 rounded-md text-xs">
+                  🎯 Target by:{" "}
+                  <span className="font-semibold">
+                    {new Date(goal.endDate).toLocaleDateString()}
+                  </span>
+                </div>
+              )}
+
             </div>
           </div>
 
           <h3 className="text-xl font-bold mb-2">FITNESS</h3>
           <p className="text-orange-100 text-sm mb-4">
-            {goal ? goal.description : 'Choose your workout activity'}
+            {goal ? goal.goal : 'Choose your workout activity'}
           </p>
 
           <div className="flex items-center justify-between">
             <div className="flex gap-1">
-              {[1,2,3,4,5].map(i => (
-                <div key={i} className={`w-2 h-2 rounded-full ${i <= 2 ? 'bg-white' : 'bg-white bg-opacity-30'}`}></div>
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div
+                  key={i}
+                  className={`w-2 h-2 rounded-full transition-all duration-300 ${i <= Math.max(1, activeDots)
+                    ? "bg-white"
+                    : "bg-white bg-opacity-30"
+                    }`}
+                ></div>
               ))}
             </div>
-            <button 
-              onClick={() => setShowActivities(true)}
-              className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
-            >
-              Set Goal →
-            </button>
+
+            {goal ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowDurationModal(true)}
+                  disabled={isGoalCompleted}
+                  className={`text-sm px-4 py-2 rounded-lg transition ${isGoalCompleted
+                    ? "bg-white bg-opacity-10 cursor-not-allowed"
+                    : "bg-white bg-opacity-20 hover:bg-opacity-30"
+                    }`}
+                >
+                  {isGoalCompleted ? "Goal Completed" : "Track Now →"}
+                </button>
+
+
+                <button
+                  onClick={() => {
+                    setShowActivities(true);
+                  }}
+                  className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
+                >
+                  {isGoalCompleted ? "Set Goal" : "Change Goal"}
+                </button>
+
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowActivities(true)}
+                className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
+              >
+                Set Goal →
+              </button>
+            )}
+            {showDurationModal && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-xl shadow-2xl p-6 w-80">
+                  <h3 className="text-xl font-bold mb-4">⏱ Workout Duration</h3>
+
+                  <label className="block text-base font-semibold text-gray-800 mb-2">
+                    How many minutes did you work out?
+                  </label>
+
+                  <input
+                    type="number"
+                    min="1"
+                    value={exerciseMinutes}
+                    onChange={(e) => setExerciseMinutes(e.target.value)}
+
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg mb-4
+                              bg-white text-black focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        if (!exerciseMinutes) {
+                          alert("Please enter workout minutes");
+                          return;
+                        }
+                        logWorkout(goal.goal, Number(exerciseMinutes));
+                        setShowDurationModal(false);
+                        setExerciseMinutes("");
+                      }}
+                      className="flex-1 bg-orange-600 text-white py-2 rounded-lg hover:bg-orange-700"
+                    >
+                      Save
+                    </button>
+
+                    <button
+                      onClick={() => setShowDurationModal(false)}
+                      className="flex-1 bg-gray-200 py-2 rounded-lg"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+
           </div>
         </div>
 
@@ -1180,11 +1545,11 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
 
           <div className="flex items-center justify-between">
             <div className="flex gap-1">
-              {[1,2,3,4,5].map(i => (
+              {[1, 2, 3, 4, 5].map(i => (
                 <div key={i} className="w-2 h-2 rounded-full bg-white bg-opacity-30"></div>
               ))}
             </div>
-            <button 
+            <button
               onClick={() => setShowFoodTracker(true)}
               className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
             >
@@ -1212,11 +1577,11 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
 
           <div className="flex items-center justify-between">
             <div className="flex gap-1">
-              {[1,2,3,4,5].map(i => (
+              {[1, 2, 3, 4, 5].map(i => (
                 <div key={i} className="w-2 h-2 rounded-full bg-white bg-opacity-30"></div>
               ))}
             </div>
-            <button 
+            <button
               onClick={() => setShowMeditation(true)}
               className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
             >
@@ -1262,10 +1627,10 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
               {fitnessActivities.map((activity, idx) => (
-                <div 
+                <div
                   key={idx}
                   onClick={() => {
-                    setFormData({...formData, description: activity.name});
+                    setFormData({ ...formData, description: activity.name });
                     setShowActivities(false);
                     setEditing(true);
                   }}
@@ -1331,7 +1696,7 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {meditationTypes.map((type, idx) => (
-                <div 
+                <div
                   key={idx}
                   className="bg-purple-50 rounded-xl p-6 cursor-pointer hover:bg-purple-100 transition transform hover:scale-105"
                 >
@@ -1359,7 +1724,7 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
                 type="text"
                 placeholder="Goal Description (e.g., Running)"
                 value={formData.description}
-                onChange={(e) => setFormData({...formData, description: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg"
                 required
               />
@@ -1368,20 +1733,21 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
                   type="number"
                   placeholder="Target"
                   value={formData.targetValue}
-                  onChange={(e) => setFormData({...formData, targetValue: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, targetValue: e.target.value })}
                   className="px-4 py-3 border border-gray-300 rounded-lg"
                 />
                 <input
                   type="text"
                   placeholder="Unit"
                   value={formData.unit}
-                  onChange={(e) => setFormData({...formData, unit: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
                   className="px-4 py-3 border border-gray-300 rounded-lg"
                 />
                 <input
                   type="date"
+                  min={today}
                   value={formData.endDate}
-                  onChange={(e) => setFormData({...formData, endDate: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
                   className="px-4 py-3 border border-gray-300 rounded-lg"
                 />
               </div>

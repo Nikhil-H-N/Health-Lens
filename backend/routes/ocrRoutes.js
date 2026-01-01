@@ -8,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const pdfParse = require("pdf-parse");
 
+
 // Configure multer for file upload
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -30,10 +31,10 @@ const upload = multer({
     const extname = allowedTypes.test(
       path.extname(file.originalname).toLowerCase()
     );
-    const mimetype = file.mimetype === 'image/jpeg' || 
-                     file.mimetype === 'image/jpg' || 
-                     file.mimetype === 'image/png' || 
-                     file.mimetype === 'application/pdf';
+    const mimetype = file.mimetype === 'image/jpeg' ||
+      file.mimetype === 'image/jpg' ||
+      file.mimetype === 'image/png' ||
+      file.mimetype === 'application/pdf';
 
     if (mimetype && extname) {
       return cb(null, true);
@@ -46,6 +47,8 @@ const upload = multer({
 // OCR endpoint - Extract text from uploaded image or PDF
 router.post("/extract", auth, upload.single("image"), async (req, res) => {
   try {
+    const reportType = req.body.reportType; // "Blood" or "Urine"
+
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
     }
@@ -56,36 +59,36 @@ router.post("/extract", auth, upload.single("image"), async (req, res) => {
     // Handle PDF files
     if (req.file.mimetype === 'application/pdf') {
       console.log("Processing PDF file...");
-      
+
       try {
         const dataBuffer = fs.readFileSync(filePath);
         const data = await pdfParse(dataBuffer);
         text = data.text;
         console.log("PDF text extracted:", text.substring(0, 200));
-        
+
         // Check if PDF has actual text content
         if (!text || text.trim().length < 50) {
           fs.unlinkSync(filePath);
-          return res.status(400).json({ 
+          return res.status(400).json({
             error: "This PDF appears to be a scanned image with no readable text.",
             suggestion: "Please convert your PDF to JPG or PNG format and upload again."
           });
         }
-        
+
       } catch (pdfError) {
         console.error("PDF parsing error:", pdfError);
         fs.unlinkSync(filePath);
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: "Failed to read PDF. Please try uploading as a JPG or PNG image instead."
         });
       }
-      
+
       fs.unlinkSync(filePath);
-      
+
     } else {
       // Handle image files with OCR
       console.log("Processing image file...");
-      
+
       let processedImagePath = `./uploads/processed-${req.file.filename}`;
       await sharp(filePath)
         .resize(3000)
@@ -110,37 +113,44 @@ router.post("/extract", auth, upload.single("image"), async (req, res) => {
       }
     }
 
-   console.log("Extracted Text Length:", text.length);
+    console.log("Extracted Text Length:", text.length);
 
-// Extract medical data patterns
-const analysisResult = parseExtractedText(text);
+    // Extract medical data patterns
+    let analysisResult;
 
-// Convert object values to strings for frontend compatibility
-const simplifiedData = {};
-for (const [key, data] of Object.entries(analysisResult.extractedValues)) {
-  simplifiedData[key] = `${data.value} ${data.unit} (${data.status})`;
-}
+    if (reportType === "Urine") {
+      analysisResult = parseUrineReport(text);
+    } else {
+      analysisResult = parseExtractedText(text); // blood report
+    }
 
-res.json({
-  success: true,
-  rawText: text,
-  extractedData: simplifiedData,
-  healthWarnings: analysisResult.healthAnalysis.warnings,
-  abnormalParameters: analysisResult.healthAnalysis.abnormalParameters,
-  normalParameters: analysisResult.healthAnalysis.normalParameters,
-  overallStatus: analysisResult.overallStatus,
-  message: "Text extracted successfully",
-  fileType: req.file.mimetype === 'application/pdf' ? 'PDF' : 'Image'
-});
+
+    // Convert object values to strings for frontend compatibility
+    const simplifiedData = {};
+    for (const [key, data] of Object.entries(analysisResult.extractedValues)) {
+      simplifiedData[key] = `${data.value} ${data.unit} (${data.status})`;
+    }
+
+    res.json({
+      success: true,
+      rawText: text,
+      extractedData: simplifiedData,
+      healthWarnings: analysisResult.healthAnalysis.warnings,
+      abnormalParameters: analysisResult.healthAnalysis.abnormalParameters,
+      normalParameters: analysisResult.healthAnalysis.normalParameters,
+      overallStatus: analysisResult.overallStatus,
+      message: "Text extracted successfully",
+      fileType: req.file.mimetype === 'application/pdf' ? 'PDF' : 'Image'
+    });
 
 
   } catch (err) {
     console.error("OCR Error:", err);
-    
+
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
-    
+
     res.status(500).json({ error: "Failed to extract text from file" });
   }
 });
@@ -265,13 +275,14 @@ function parseExtractedText(text) {
     }
   };
 
+
   for (const [paramName, config] of Object.entries(medicalParameters)) {
     const match = text.match(config.pattern);
-    
+
     if (match && match[1]) {
       const value = match[1].trim();
       const numericValue = parseFloat(value.replace(/,/g, ''));
-      
+
       data[paramName] = {
         value: value,
         unit: config.unit
@@ -280,7 +291,7 @@ function parseExtractedText(text) {
       if (!isNaN(numericValue) && config.normalRange.general) {
         const [min, max] = config.normalRange.general;
         let status = "Normal";
-        
+
         if (numericValue < min) {
           status = "Low";
           healthAnalysis.warnings.push(`⚠️ ${paramName}: ${config.warnings.low}`);
@@ -292,7 +303,7 @@ function parseExtractedText(text) {
         } else {
           healthAnalysis.normalParameters.push(paramName);
         }
-        
+
         data[paramName].status = status;
         data[paramName].normalRange = `${min}-${max} ${config.unit}`;
       }
@@ -302,10 +313,97 @@ function parseExtractedText(text) {
   return {
     extractedValues: data,
     healthAnalysis: healthAnalysis,
-    overallStatus: healthAnalysis.warnings.length === 0 ? 
-      "All parameters within normal range ✅" : 
+    overallStatus: healthAnalysis.warnings.length === 0 ?
+      "All parameters within normal range ✅" :
       `${healthAnalysis.warnings.length} parameter(s) need attention ⚠️`
   };
 }
+
+function parseUrineReport(text) {
+  const data = {};
+  const healthAnalysis = {
+    warnings: [],
+    normalParameters: [],
+    abnormalParameters: []
+  };
+
+  const urineParameters = {
+    Color: {
+      pattern: /(?:COLOR|Colour)\s*[:\s]+([A-Za-z]+)/i,
+      normal: ["Yellow", "Straw", "Light Yellow", "Pale"],
+      warning: "Abnormal urine color may indicate dehydration or infection."
+    },
+    Appearance: {
+      pattern: /(?:APPEARANCE|Clarity)\s*[:\s]+([A-Za-z]+)/i,
+      normal: ["Clear"],
+      warning: "Cloudy urine may indicate infection."
+    },
+    pH: {
+      pattern: /(?:pH)\s*[:\s]+([0-9.]+)/i,
+      normalRange: [4.5, 8.0],
+      warning: "Abnormal urine pH may indicate kidney or metabolic issues."
+    },
+    Protein: {
+      pattern: /(?:PROTEIN)\s*[:\s]+([A-Za-z+]+)/i,
+      normal: ["Negative", "Nil"],
+      warning: "Protein in urine may indicate kidney problems."
+    },
+    Sugar: {
+      pattern: /(?:GLUCOSE|SUGAR)\s*[:\s]+([A-Za-z+]+)/i,
+      normal: ["Negative", "Nil"],
+      warning: "Sugar in urine may indicate diabetes."
+    }
+  };
+
+  for (const [param, config] of Object.entries(urineParameters)) {
+    const match = text.match(config.pattern);
+
+    if (match && match[1]) {
+      const value = match[1].trim();
+      data[param] = {
+        value: value,
+        unit: "",
+        status: config.normal ? "Normal" : "Unknown"
+      };
+
+
+      if (config.normalRange) {
+        const num = parseFloat(value);
+
+        if (isNaN(num)) return;
+
+        if (num < config.normalRange[0] || num > config.normalRange[1]) {
+          healthAnalysis.warnings.push(`⚠️ ${param}: ${config.warning}`);
+          healthAnalysis.abnormalParameters.push(param);
+        } else {
+          healthAnalysis.normalParameters.push(param);
+        }
+      }
+
+      else if (config.normal) {
+        const isNormal = config.normal
+          .map(v => v.toLowerCase())
+          .includes(value.toLowerCase());
+
+        if (!isNormal) {
+          healthAnalysis.warnings.push(`⚠️ ${param}: ${config.warning}`);
+          healthAnalysis.abnormalParameters.push(param);
+        } else {
+          healthAnalysis.normalParameters.push(param);
+        }
+      }
+    }
+  }
+
+  return {
+    extractedValues: data,
+    healthAnalysis,
+    overallStatus:
+      healthAnalysis.warnings.length === 0
+        ? "Urine report normal ✅"
+        : `${healthAnalysis.warnings.length} abnormal finding(s) ⚠️`
+  };
+}
+
 
 module.exports = router;
