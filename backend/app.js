@@ -17,7 +17,7 @@ app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/reports", require("./routes/reportRoutes"));
 app.use("/api/fitness", require("./routes/fitnessRoutes"));
 app.use("/api/vaccination", require("./routes/vaccinationRoutes"));
-app.use("/api/disease", require("./routes/diseaseRoutes"));
+app.use("/api/diseases", require("./routes/diseaseRoutes"));
 app.use("/api/routine", require("./routes/routineRoutes"));
 app.use("/api/chat", require("./routes/chatRoutes"));
 app.use("/api/clinics", require("./routes/clinicRoutes"));

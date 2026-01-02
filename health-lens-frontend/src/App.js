@@ -173,7 +173,7 @@ const HealthLensApp = () => {
           {currentPage === 'vaccinations' && <Vaccinations vaccinations={vaccinations} setVaccinations={setVaccinations} token={token} />}
           {currentPage === 'fitness' && <FitnessGoals goal={fitnessGoal} setGoal={setFitnessGoal} token={token} />}
           {currentPage === 'routine' && <DailyRoutine token={token} user={user} />}
-          {currentPage === 'clinics' && <Clinics clinics={clinics} />}
+          {currentPage === 'clinics' && <NearbyClinics />}
           {currentPage === 'chat' && <HealthChat chatHistory={chatHistory} setChatHistory={setChatHistory} token={token} />}
           {currentPage === 'profile' && <Profile token={token} user={user} setUser={setUser} />}
 
@@ -874,8 +874,8 @@ const Reports = ({ reports, setReports, token }) => {
                   <div
                     key={key}
                     className={`flex justify-between py-1 text-sm border-b ${isAbnormal
-                        ? "text-red-600 font-semibold"
-                        : "text-gray-700"
+                      ? "text-red-600 font-semibold"
+                      : "text-gray-700"
                       }`}
                   >
                     <span>{key}</span>
@@ -912,19 +912,189 @@ const Reports = ({ reports, setReports, token }) => {
 
 // Diseases Component
 const Diseases = ({ diseases, setDiseases, token }) => {
+  const [diseaseType, setDiseaseType] = useState("");
+  const [availableDiseases, setAvailableDiseases] = useState([]);
+  const [selectedDisease, setSelectedDisease] = useState("");
+  const [diagnosedDate, setDiagnosedDate] = useState("");
+
+
+  const fetchDiseasesByType = async (type) => {
+    console.log("Fetching diseases for type:", type);
+
+    const res = await fetch(`/api/diseases/list/${type}`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    const text = await res.text();   // ✅ read raw response
+    console.log("Raw response from backend:", text);
+
+    try {
+      const data = JSON.parse(text); // ✅ try parsing JSON
+      setAvailableDiseases(data);
+    } catch (err) {
+      console.error("JSON parse failed. Backend did NOT return JSON.");
+    }
+  };
+
+
+  const trackDisease = async () => {
+    if (!diseaseType || !selectedDisease || !diagnosedDate) {
+      alert("Please select disease type, disease, and date");
+      return;
+    }
+    const res = await fetch("/api/diseases/track", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        diseaseId: selectedDisease,
+        diagnosedDate,
+        diseaseType
+      })
+    });
+
+    if (res.ok) {
+      fetchUserDiseases(); // refresh list
+      setSelectedDisease("");
+      setDiseaseType("");
+      setDiagnosedDate("");
+    }
+  };
+
+  const fetchUserDiseases = async () => {
+    const res = await fetch("/api/diseases", {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    const data = await res.json();
+    setDiseases(data);
+  };
+
+  const resolveDisease = async (id) => {
+    const confirm = window.confirm("Mark this disease as resolved?");
+    if (!confirm) return;
+
+    const res = await fetch(`/api/diseases/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (res.ok) {
+      // ✅ remove from UI immediately
+      setDiseases(prev => prev.filter(d => d._id !== id));
+    }
+  };
+
+
+
+  useEffect(() => {
+    fetchUserDiseases();
+  }, []);
+
   return (
     <div className="space-y-6">
       <h2 className="text-3xl font-bold text-gray-800">Disease Tracking</h2>
 
+      <div className="bg-white p-6 rounded-xl shadow-sm space-y-4">
+        <h3 className="font-bold text-lg">Track New Disease</h3>
+
+        {/* Disease Type */}
+        <select
+          value={diseaseType}
+          onChange={(e) => {
+            const type = e.target.value;
+            setDiseaseType(type);
+            setSelectedDisease("");
+            setAvailableDiseases([]);
+            if (type) fetchDiseasesByType(type);
+          }}
+
+          className="w-full border px-4 py-2 rounded"
+        >
+          <option value="">Select Disease Type</option>
+          <option value="Acute">Acute</option>
+          <option value="Chronic">Chronic</option>
+        </select>
+
+        {/* Disease Name */}
+        {availableDiseases.length > 0 && (
+          <select
+            value={selectedDisease}
+            onChange={(e) => setSelectedDisease(e.target.value)}
+            className="w-full border px-4 py-2 rounded"
+          >
+            <option value="">Select Disease</option>
+            {availableDiseases.map(d => (
+              <option key={d._id} value={d._id}>{d.name}</option>
+            ))}
+          </select>
+        )}
+
+        {/* Diagnosed Date */}
+        <input
+          type="date"
+          value={diagnosedDate}
+          max={new Date().toISOString().split("T")[0]}
+          onChange={(e) => setDiagnosedDate(e.target.value)}
+          className="w-full border px-4 py-2 rounded"
+        />
+
+        <button
+          onClick={trackDisease}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+        >
+          Track Disease
+        </button>
+      </div>
+
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {diseases.map(disease => (
-          <div key={disease._id} className="bg-white rounded-xl shadow-sm p-6">
+          <div
+            key={disease._id}
+            className={`bg-white rounded-xl shadow-sm p-6 border-l-4 ${disease.diseaseType === "Chronic"
+              ? "border-red-500"
+              : "border-yellow-500"
+              }`}
+          >
             <Heart className="w-10 h-10 text-red-500 mb-3" />
-            <h3 className="font-bold text-lg mb-2">{disease.diseaseId?.name || 'Unknown'}</h3>
-            <p className="text-sm text-gray-500">Diagnosed: {new Date(disease.diagnosedDate).toLocaleDateString()}</p>
-            <p className="text-sm text-gray-600 mt-2">Type: {disease.type}</p>
+
+            <h3 className="font-bold text-lg mb-1">
+              {disease.diseaseId?.name || "Unknown"}
+            </h3>
+
+            <p className="text-sm text-gray-500">
+              Diagnosed: {new Date(disease.diagnosedDate).toLocaleDateString()}
+            </p>
+
+            {/* Acute / Chronic badge */}
+            <span
+              className={`inline-block mt-2 px-3 py-1 text-xs rounded-full font-semibold ${disease.diseaseType === "Chronic"
+                ? "bg-red-100 text-red-700"
+                : "bg-yellow-100 text-yellow-700"
+                }`}
+            >
+              {disease.diseaseType}
+            </span>
+
+            {/* ✅ RESOLVE BUTTON — PUT HERE */}
+            <button
+              onClick={() => resolveDisease(disease._id)}
+              className="mt-4 text-sm text-red-600 hover:underline"
+            >
+              Resolve Disease
+            </button>
+
           </div>
         ))}
+
         {diseases.length === 0 && (
           <div className="col-span-3 text-center py-12 text-gray-500">
             No diseases tracked yet
@@ -1096,6 +1266,12 @@ const DailyRoutine = ({ diseases, token }) => {
                 </div>
                 <div className="flex-1">
                   <h3 className="font-semibold text-lg text-gray-800">{task.task}</h3>
+                  {task.priority === "high" && (
+                    <span className="text-xs text-red-600 font-semibold">
+                      Chronic Care
+                    </span>
+                  )}
+
                   <p className="text-gray-600 text-sm mt-1">{task.time}</p>
                   {task.notes && (
                     <p className="text-gray-500 text-sm mt-2 italic">{task.notes}</p>
@@ -1113,27 +1289,34 @@ const DailyRoutine = ({ diseases, token }) => {
   );
 };
 // Nearby Clinics Component
-const Clinics = ({ clinics, token }) => {
+const NearbyClinics = () => {
+  // Change city if you want a fixed location
+  const searchQuery = "clinics near me";
+
+  const mapUrl = `https://www.google.com/maps?q=${encodeURIComponent(
+    searchQuery
+  )}&output=embed`;
+
   return (
     <div className="space-y-6">
       <h2 className="text-3xl font-bold text-gray-800">📍 Nearby Clinics</h2>
 
-      {clinics.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-xl shadow-sm">
-          <MapPin className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-gray-700 mb-2">No Clinics Found</h3>
-          <p className="text-gray-500">Search for clinics near you</p>
-        </div>
-      ) : (
-        <div className="grid gap-4">
-          {clinics.map((clinic, index) => (
-            <div key={index} className="bg-white rounded-xl shadow-sm p-6">
-              <h3 className="font-bold text-lg">{clinic.name}</h3>
-              <p className="text-gray-600">{clinic.address}</p>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="bg-white rounded-xl shadow-md p-4 h-[500px]">
+        <iframe
+          title="Nearby Clinics Map"
+          src={mapUrl}
+          width="100%"
+          height="100%"
+          style={{ border: 0 }}
+          allowFullScreen
+          loading="lazy"
+          referrerPolicy="no-referrer-when-downgrade"
+        />
+      </div>
+
+      <p className="text-sm text-gray-500 text-center">
+        Showing clinics and hospitals near your location
+      </p>
     </div>
   );
 };
@@ -1233,7 +1416,9 @@ const Profile = ({ user, token }) => {
           </div>
           <div className="border-t pt-4">
             <p className="text-sm text-gray-600">Health Score</p>
-            <p className="font-semibold text-green-600">85/100</p>
+            <p className="font-semibold text-green-600">
+              {user?.healthScore}/100
+            </p>
           </div>
         </div>
       </div>
@@ -1356,6 +1541,11 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
       alert("Please enter activity and target minutes");
       return;
     }
+    if (new Date(formData.endDate) < new Date().setHours(0, 0, 0, 0)) {
+      alert("Target date cannot be in the past");
+      return;
+    }
+
 
     try {
       const res = await fetch(`${API_URL}/fitness/goal`, {
@@ -1745,10 +1935,13 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
                 />
                 <input
                   type="date"
-                  min={today}
+                  min={new Date().toISOString().split("T")[0]}   // ⛔ blocks past dates
                   value={formData.endDate}
-                  onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, endDate: e.target.value })
+                  }
                   className="px-4 py-3 border border-gray-300 rounded-lg"
+                  required
                 />
               </div>
               <div className="flex gap-3">

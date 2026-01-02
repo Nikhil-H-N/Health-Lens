@@ -64,6 +64,21 @@ router.post("/mood-photo/:moodKey", auth, upload.single("image"), async (req, re
 router.get("/me", auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select("-password");
+    const UserDisease = require("../models/UserDisease");
+
+    const diseases = await UserDisease.find({ userId: user._id });
+
+    let score = 100;
+
+    diseases.forEach(d => {
+      if (d.diseaseType === "Chronic") score -= 15;
+      else score -= 5;
+    });
+
+    if (score < 40) score = 40;
+
+    user.healthScore = score;
+
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: "Server error" });

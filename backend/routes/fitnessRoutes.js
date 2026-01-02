@@ -11,7 +11,7 @@ const MeditationLog = require("../models/MeditationLog");
 // 🏃 SAVE FITNESS GOAL
 router.post("/goal", authMiddleware, async (req, res) => {
   try {
-    const { goal, targetMinutes, endDate} = req.body;
+    const { goal, targetMinutes, endDate } = req.body;
 
     await FitnessGoal.deleteMany({ userId: req.user.id });
 
@@ -52,6 +52,13 @@ router.get("/goal", authMiddleware, async (req, res) => {
 router.post("/activity", authMiddleware, async (req, res) => {
   try {
     const { activity, duration, caloriesBurned } = req.body;
+    // ❌ Block past dates
+    if (new Date(endDate) < new Date().setHours(0, 0, 0, 0)) {
+      return res.status(400).json({
+        error: "Target date cannot be in the past"
+      });
+    }
+
 
     const newActivity = new FitnessActivity({
       userId: req.user.id,
