@@ -18,7 +18,7 @@ router.post("/upload", auth, async (req, res) => {
     }
 
     const newReport = new Report({
-      user_id: req.user.id,
+      user: req.user.id,
       type,
       date,
       values,
@@ -36,7 +36,7 @@ router.post("/upload", auth, async (req, res) => {
 // ✅ GET /api/reports - Get all reports for the logged-in user
 router.get("/", auth, async (req, res) => {
   try {
-    const reports = await Report.find({ user_id: req.user.id }).sort({ date: -1 });
+    const reports = await Report.find({ user: req.user.id }).sort({ date: -1 });
     res.json(reports);
   } catch (err) {
     console.error("Error fetching reports:", err);
@@ -49,7 +49,7 @@ router.delete("/:id", auth, async (req, res) => {
   try {
     const report = await Report.findOneAndDelete({
       _id: req.params.id,
-      user_id: req.user.id,
+      user: req.user.id,
     });
 
     if (!report) {

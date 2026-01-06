@@ -10,11 +10,13 @@ const FoodLogSchema = new mongoose.Schema({
     type: String, // Breakfast, Lunch, Dinner, Snacks, Drinks
     required: true
   },
-  items: [
-    {
-      type: String
-    }
-  ],
+  items: [{
+    name: String,
+    calories: Number,
+    protein: Number,
+    carbs: Number,
+    fat: Number
+  }],
   date: {
     type: Date,
     default: Date.now

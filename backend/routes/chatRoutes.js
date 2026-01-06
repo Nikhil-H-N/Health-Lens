@@ -3,18 +3,28 @@ const router = express.Router();
 const auth = require("../middleware/authMiddleware");
 const askHealthAI = require("../utils/openai");
 
+const ChatHistory = require("../models/ChatHistory");
+
 router.post("/", auth, async (req, res) => {
-  try {
-    console.log("🔥 Chat route hit");
-    console.log("Message:", req.body.message);
+  const { message } = req.body;
 
-    const reply = await askHealthAI(req.body.message);
+  const reply = await askHealthAI(message);
 
-    res.json({ response: reply });
-  } catch (err) {
-    console.error("❌ Chat error:", err);
-    res.status(500).json({ error: "AI failed" });
-  }
+  await ChatHistory.findOneAndUpdate(
+    { userId: req.user.id },
+    {
+      $push: {
+        messages: [
+          { sender: "user", text: message },
+          { sender: "bot", text: reply }
+        ]
+      }
+    },
+    { upsert: true }
+  );
+
+  res.json({ response: reply });
 });
+
 
 module.exports = router;

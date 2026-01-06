@@ -15,14 +15,7 @@ const userSchema = new Schema({
     high:      { type: String },
     very_high: { type: String }
   },
-   dailyRoutines: [{
-    date: String,
-    tasks: [{
-      id: String,
-      completed: Boolean,
-      value: Number
-    }]
-  }],
+  
   createdAt:{ type: Date, default: Date.now }
 });
 

@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
 const dailyRoutineSchema = new Schema({
-user: { type: Schema.Types.ObjectId, ref: 'User' },
+userId: { type: Schema.Types.ObjectId, ref: 'User' },
 date: Date,
 water_intake: Number,
 sleep_hours: Number,

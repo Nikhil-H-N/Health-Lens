@@ -1437,6 +1437,11 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
   const [showMeditation, setShowMeditation] = useState(false);
   const [showDurationModal, setShowDurationModal] = useState(false);
   const [exerciseMinutes, setExerciseMinutes] = useState("");
+  const [calendarKey, setCalendarKey] = useState(0);
+  const [workoutsThisWeek, setWorkoutsThisWeek] = useState(0);
+  const [weekView, setWeekView] = useState("this");
+  const [goalsCompletedThisWeek, setGoalsCompletedThisWeek] = useState([]);
+  const [goalsCompletedLastWeek, setGoalsCompletedLastWeek] = useState([]);
 
   const [formData, setFormData] = useState({
     description: goal?.goal || '',
@@ -1457,13 +1462,29 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
         },
       });
       const data = await res.json();
+      console.log("Progress data:", data);
       setProgress(data.progress || 0);
-      setWeeklyMinutes(data.totalMinutes || 0);
+      setWeeklyMinutes(data.completedMinutes || 0);
+
+      // 🔥 IF GOAL COMPLETED → REFRESH GOAL
+      if (data.progress === 100) {
+        const goalRes = await fetch(`${API_URL}/fitness/goal`, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        });
+
+        if (goalRes.ok) {
+          const updatedGoal = await goalRes.json();
+          setGoal(updatedGoal); // ✅ THIS updates Dashboard
+        }
+      }
+
     } catch (err) {
       console.error("Failed to fetch progress", err);
     }
   };
-  const logWorkout = async (activity, duration) => {
+  const logWorkout = async (activity, duration, date) => {
     try {
       await fetch(`${API_URL}/fitness/activity`, {
         method: "POST",
@@ -1474,32 +1495,42 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
         body: JSON.stringify({
           activity,
           duration,
+          date: new Date().toISOString().split("T")[0] // 👈 FORCE DATE
         }),
       });
-
-      fetchProgress(); // refresh UI
+      setCalendarKey(prev => prev + 1);
+      await fetchProgress();
+      await fetchWeeklyStats();   // ✅ ADD THIS
     } catch (err) {
       console.error("Error logging workout", err);
     }
   };
 
   useEffect(() => {
-    if (goal) {
-      fetchProgress();
-    }
-  }, [goal]);
-  useEffect(() => {
-    if (goal) {
-      setFormData({
-        description: goal.goal,
-        targetValue: goal.targetMinutes,
-        unit: "minutes",
-        endDate: "",
+    (async () => {
+      await fetchProgress();
+      await fetchWeeklyStats();
+    })();
+  }, []);
+
+  const fetchWeeklyStats = async () => {
+    try {
+      const res = await fetch(`${API_URL}/fitness/weekly-stats`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
       });
+
+      const data = await res.json();
+
+      setWorkoutsThisWeek(data.workoutsThisWeek || 0);
+      setGoalsCompletedThisWeek(data.goalsCompletedThisWeek || []);
+      setGoalsCompletedLastWeek(data.goalsCompletedLastWeek || []);
+
+    } catch (err) {
+      console.error("Weekly stats fetch failed", err);
     }
-  }, [goal]);
-
-
+  };
 
   // Fitness Activities
   const fitnessActivities = [
@@ -1570,6 +1601,9 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
       }
 
       setGoal(data);
+      setProgress(0);
+      setWeeklyMinutes(0);
+      fetchProgress();
       setEditing(false);
 
     } catch (err) {
@@ -1577,9 +1611,6 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
       alert("Network error");
     }
   };
-
-
-
 
   return (
     <div className="space-y-6">
@@ -1692,7 +1723,11 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
                           alert("Please enter workout minutes");
                           return;
                         }
-                        logWorkout(goal.goal, Number(exerciseMinutes));
+                        logWorkout(
+                          goal.goal,
+                          Number(exerciseMinutes),
+                          new Date().toISOString().split("T")[0] // ✅ TODAY'S DATE
+                        );
                         setShowDurationModal(false);
                         setExerciseMinutes("");
                       }}
@@ -1784,10 +1819,37 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
       {/* Quick Stats Overview */}
       <div className="bg-white rounded-xl shadow-sm p-6">
         <h3 className="text-xl font-bold mb-4">📊 Wellness Stats</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-3xl font-bold text-orange-500">0</p>
-            <p className="text-sm text-gray-600">Workouts this week</p>
+            <p className="text-3xl font-bold text-orange-500">{workoutsThisWeek}</p>
+            <p className="text-sm text-gray-600">Goals completed this week</p>
+            <select
+              value={weekView}
+              onChange={(e) => setWeekView(e.target.value)}
+              className="border px-3 py-2 rounded text-sm mt-3"
+            >
+              <option value="this">This Week</option>
+              <option value="last">Last Week</option>
+            </select>
+            {(weekView === "this"
+              ? goalsCompletedThisWeek
+              : goalsCompletedLastWeek
+            ).length > 0 ? (
+              <ul className="list-disc ml-5 mt-3 space-y-1 text-sm text-gray-700">
+                {(weekView === "this"
+                  ? goalsCompletedThisWeek
+                  : goalsCompletedLastWeek
+                ).map((g, i) => (
+                  <li key={i}>
+                    {i + 1} – {g.goal}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-500 mt-3">
+                No goals completed
+              </p>
+            )}
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
             <p className="text-3xl font-bold text-green-500">0</p>
@@ -1797,12 +1859,10 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
             <p className="text-3xl font-bold text-purple-500">0</p>
             <p className="text-sm text-gray-600">Meditation streak</p>
           </div>
-          <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-3xl font-bold text-blue-500">--</p>
-            <p className="text-sm text-gray-600">Sleep quality</p>
-          </div>
         </div>
+
       </div>
+      <FitnessCalendar token={token} key={calendarKey} />
 
       {/* Activity Selection Modal */}
       {showActivities && (
@@ -1968,6 +2028,168 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
   );
 };
 
+// ================= FITNESS CALENDAR =================
+const FitnessCalendar = ({ token }) => {
+  const [view, setView] = useState("month"); // month | week1 | week2 | week3 | week4
+  const [workouts, setWorkouts] = useState([]);
+  const [weekView, setWeekView] = useState("this");
+  const [goalsCompletedThisWeek, setGoalsCompletedThisWeek] = useState([]);
+  const [goalsCompletedLastWeek, setGoalsCompletedLastWeek] = useState([]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/fitness/activity/history`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => res.json())
+      .then(data => setWorkouts(data || []))
+      .catch(err => console.error("Calendar fetch error:", err));
+  }, [token]);
+
+  // ✅ Group workouts by ISO date
+  const grouped = workouts.reduce((acc, w) => {
+    const key = new Date(w.date).toISOString().split("T")[0];
+    acc[key] = (acc[key] || 0) + w.duration;
+    return acc;
+  }, {});
+
+  // ✅ Build weeks of current month (1–28 only, clean & predictable)
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+
+  // total days in current month (28–31)
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const weeks = {};
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = new Date(year, month, day);
+    const key = date.toISOString().split("T")[0];
+
+    // ISO week number inside the month
+    const weekOfMonth = Math.ceil(
+      (day + new Date(year, month, 1).getDay()) / 7
+    );
+
+    if (!weeks[`week${weekOfMonth}`]) {
+      weeks[`week${weekOfMonth}`] = [];
+    }
+
+    weeks[`week${weekOfMonth}`].push({
+      date,
+      key,
+      minutes: grouped[key] || 0
+    });
+  }
+
+
+  // weekly totals
+  const weeklyTotals = Object.keys(weeks).reduce((acc, w) => {
+    acc[w] = weeks[w].reduce((s, d) => s + d.minutes, 0);
+    return acc;
+  }, {});
+
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-6 mt-6">
+      {/* Header + Dropdown */}
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-xl font-bold">📅 Workout Calendar</h3>
+
+        <select
+          value={view}
+          onChange={e => setView(e.target.value)}
+          className="border px-3 py-2 rounded-lg text-sm"
+        >
+          {Object.keys(weeks).map(w => (
+            <option key={w} value={w}>
+              {w.replace("week", "Week ")}
+            </option>
+          ))}
+          <option value="month">Whole Month</option>
+        </select>
+
+      </div>
+
+      {/* ✅ WEEK VIEW */}
+      {view !== "month" && (
+        <div className="overflow-x-auto mt-4">
+          <table className="w-full border rounded-lg">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-2 text-left">Date</th>
+                <th className="p-2 text-center">Workout (mins)</th>
+                <th className="p-2 text-center">Nutrition</th>
+                <th className="p-2 text-center">Mindfulness</th>
+              </tr>
+            </thead>
+            <tbody>
+              {weeks[view]?.map(d => {
+                const isToday =
+                  d.key === new Date().toISOString().split("T")[0];
+
+                return (
+                  <tr
+                    key={d.key}
+                    className={`border-t ${isToday ? "bg-green-50 font-semibold" : ""
+                      }`}
+                  >
+                    <td className="p-2">
+                      {d.date.toLocaleDateString()}
+                      {isToday && " 🟢"}
+                    </td>
+                    <td className="p-2 text-center">{d.minutes}</td>
+                    <td className="p-2 text-center text-gray-400">—</td>
+                    <td className="p-2 text-center text-gray-400">—</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {/* Weekly total */}
+          <div className="mt-2 text-right text-sm font-semibold">
+            Total this week:{weeklyTotals[view] || 0} mins
+          </div>
+        </div>
+      )}
+
+      {/* ✅ MONTH VIEW */}
+      {view === "month" && (
+        <div className="grid grid-cols-7 gap-2 text-center text-sm mt-4">
+          {Array.from({ length: daysInMonth }).map((_, i) => {
+            const date = new Date(year, month, i + 1);
+            const key = date.toISOString().split("T")[0];
+            const minutes = grouped[key] || 0;
+            const isToday =
+              key === new Date().toISOString().split("T")[0];
+
+            return (
+              <div
+                key={key}
+                className={`p-3 rounded-lg font-semibold
+                  ${minutes === 0
+                    ? "bg-gray-100 text-gray-400"
+                    : minutes < 30
+                      ? "bg-orange-200 text-orange-800"
+                      : "bg-green-300 text-green-900"}
+                  ${isToday ? "ring-2 ring-green-600" : ""}
+                `}
+              >
+                <div>{i + 1}</div>
+                <div className="text-xs">{minutes}m</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="text-xs text-gray-500 mt-3">
+        🟩 High activity · 🟧 Low activity · ⬜ No workout
+      </p>
+    </div>
+  );
+};
 
 
 export default HealthLensApp;
