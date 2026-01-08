@@ -1,6 +1,50 @@
 import React, { useState, useEffect } from 'react';
 import { Heart, FileText, Syringe, Target, MapPin, MessageSquare, Activity, LogOut, User, Menu, X, Plus, Trash2, TrendingUp, Calendar, CheckCircle } from 'lucide-react';
 
+// ================= FOOD MASTER DATA =================
+// Base calories per standard serving (grams)
+const FOOD_DATA = {
+  Breakfast: {
+    Oatmeal: { calories: 150, grams: 40 },
+    Eggs: { calories: 155, grams: 100 },
+    Toast: { calories: 80, grams: 30 },
+    Smoothie: { calories: 180, grams: 250 },
+    Cereal: { calories: 120, grams: 30 }
+  },
+
+  Lunch: {
+    "Rice Bowl": { calories: 200, grams: 150 },
+    Salad: { calories: 120, grams: 200 },
+    Sandwich: { calories: 300, grams: 180 },
+    Pasta: { calories: 450, grams: 150 },
+    Soup: { calories: 150, grams: 250 }
+  },
+
+  Dinner: {
+    Chicken: { calories: 250, grams: 150 },
+    Fish: { calories: 220, grams: 150 },
+    Vegetables: { calories: 100, grams: 200 },
+    Curry: { calories: 300, grams: 200 },
+    Steak: { calories: 350, grams: 180 }
+  },
+
+  Snacks: {
+    Fruits: { calories: 100, grams: 150 },
+    Nuts: { calories: 180, grams: 30 },
+    Yogurt: { calories: 120, grams: 100 },
+    "Protein Bar": { calories: 200, grams: 60 },
+    Chips: { calories: 160, grams: 30 }
+  },
+
+  Drinks: {
+    Water: { calories: 0, grams: 250 },
+    Juice: { calories: 120, grams: 250 },
+    Coffee: { calories: 5, grams: 200 },
+    Tea: { calories: 2, grams: 200 },
+    Smoothie: { calories: 180, grams: 250 }
+  }
+};
+
 const API_URL = 'http://localhost:5000/api'; // Change this to your backend URL
 
 // ✅ Add these helper functions here
@@ -1437,11 +1481,30 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
   const [showMeditation, setShowMeditation] = useState(false);
   const [showDurationModal, setShowDurationModal] = useState(false);
   const [exerciseMinutes, setExerciseMinutes] = useState("");
-  const [calendarKey, setCalendarKey] = useState(0);
   const [workoutsThisWeek, setWorkoutsThisWeek] = useState(0);
   const [weekView, setWeekView] = useState("this");
   const [goalsCompletedThisWeek, setGoalsCompletedThisWeek] = useState([]);
   const [goalsCompletedLastWeek, setGoalsCompletedLastWeek] = useState([]);
+  const [selectedFood, setSelectedFood] = useState(null);
+  const [foodGrams, setFoodGrams] = useState("");
+  const [totalCalories, setTotalCalories] = useState(0);
+  const [todayFoodLog, setTodayFoodLog] = useState([]);
+  const [savedTodayFoodLog, setSavedTodayFoodLog] = useState([]);
+  const [savedTodayCalories, setSavedTodayCalories] = useState(0);
+  const [isEditingToday, setIsEditingToday] = useState(false);
+  const [calorieView, setCalorieView] = useState("today"); // today | yesterday
+  const [calorieItems, setCalorieItems] = useState([]);
+  const [calorieTotal, setCalorieTotal] = useState(0);
+  const [showCalorieModal, setShowCalorieModal] = useState(false);
+  const [calorieTarget, setCalorieTarget] = useState(null);
+  const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
+  const [calorieForm, setCalorieForm] = useState({
+    weight: "",
+    height: "",
+    age: "",
+    gender: "male",
+    activity: "moderate"
+  });
 
   const [formData, setFormData] = useState({
     description: goal?.goal || '',
@@ -1449,9 +1512,30 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
     unit: 'minutes',
     endDate: ''
   });
+  const LITER_ITEMS = ["Water"];
+
+  const requiresLiters = (foodName) => LITER_ITEMS.includes(foodName);
+  const NO_GRAM_ITEMS = ["Coffee", "Tea", "Water", "Juice", "Smoothie"];
+
+  const requiresGrams = (foodName) => {
+    return !NO_GRAM_ITEMS.includes(foodName);
+  };
   const isGoalCompleted = progress >= 100;
   const activeDots = Math.min(5, Math.ceil(progress / 20));
   const today = new Date().toISOString().split("T")[0];
+  const consumed = savedTodayCalories;      // what user ate
+  const target = calorieTarget;       // calculated target
+
+  const difference = consumed - target;
+
+  const isOverTarget = difference > 0;
+  const isUnderTarget = difference < 0;
+  const isOnTarget = difference === 0;
+
+  const percentUsed = Math.min(
+    100,
+    Math.round((consumed / target) * 100)
+  );
 
 
   const fetchProgress = async () => {
@@ -1498,20 +1582,138 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
           date: new Date().toISOString().split("T")[0] // 👈 FORCE DATE
         }),
       });
-      setCalendarKey(prev => prev + 1);
+      setCalendarRefreshKey(prev => prev + 1);
+
       await fetchProgress();
       await fetchWeeklyStats();   // ✅ ADD THIS
     } catch (err) {
       console.error("Error logging workout", err);
     }
   };
+  const fetchTodayFoodLogs = async () => {
+    try {
+      const res = await fetch(
+        `${API_URL}/fitness/nutrition/logs/today`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`
+          }
+        }
+      );
+
+      const logs = await res.json();
+
+      let calories = 0;
+      let items = [];
+
+      logs.forEach(log => {
+        log.items.forEach(item => {
+          calories += item.calories;
+          items.push(item);
+        });
+      });
+
+      setSavedTodayFoodLog(items);
+      setSavedTodayCalories(calories);
+    } catch (err) {
+      console.error("Failed to fetch food logs", err);
+    }
+  };
+  const fetchCalories = async (view) => {
+    try {
+      const endpoint =
+        view === "today"
+          ? "/fitness/nutrition/logs/today"
+          : "/fitness/nutrition/logs/yesterday";
+
+      const res = await fetch(`${API_URL}${endpoint}`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`
+        }
+      });
+
+      const logs = await res.json();
+      if (!Array.isArray(logs)) return;
+
+      let total = 0;
+      let items = [];
+
+
+      logs.forEach(log => {
+        log.items.forEach(item => {
+          total += Number(item.calories || 0);
+          items.push(item);
+        });
+      });
+
+      setCalorieTotal(total);
+      setCalorieItems(items);
+
+    } catch (err) {
+      console.error("Failed to fetch calories", err);
+    }
+  };
+  const calculateCalories = () => {
+    const { gender, age, height, weight, activity } = calorieForm;
+
+    if (!age || !height || !weight) {
+      alert("Please fill all fields");
+      return;
+    }
+
+    let bmr;
+    if (gender === "male") {
+      bmr = 10 * weight + 6.25 * height - 5 * age + 5;
+    } else {
+      bmr = 10 * weight + 6.25 * height - 5 * age - 161;
+    }
+
+    const activityFactor = {
+      low: 1.2,
+      moderate: 1.55,
+      high: 1.725
+    };
+
+    const calories = Math.round(bmr * activityFactor[activity]);
+    handleSaveCalorieTarget(calories);
+
+    setCalorieTarget(calories);
+    setShowCalorieModal(false);
+  };
+
 
   useEffect(() => {
     (async () => {
       await fetchProgress();
       await fetchWeeklyStats();
+      await fetchTodayFoodLogs(); // ✅ ADD THIS
     })();
   }, []);
+  useEffect(() => {
+    fetchCalories(calorieView);
+  }, [calorieView]);
+  useEffect(() => {
+    const fetchCalorieTarget = async () => {
+      try {
+        const res = await fetch(`${API_URL}/fitness/nutrition/target`, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        });
+
+        const data = await res.json();
+
+        if (data?.targetCalories) {
+          setCalorieTarget(data.targetCalories);
+        }
+      } catch (err) {
+        console.error("Failed to load calorie target");
+      }
+    };
+
+    fetchCalorieTarget();
+  }, []);
+
 
   const fetchWeeklyStats = async () => {
     try {
@@ -1548,11 +1750,61 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
 
   // Food Categories
   const foodCategories = [
-    { name: 'Breakfast', emoji: '🍳', items: ['Oatmeal', 'Eggs', 'Toast', 'Smoothie', 'Cereal'] },
-    { name: 'Lunch', emoji: '🍱', items: ['Rice Bowl', 'Salad', 'Sandwich', 'Pasta', 'Soup'] },
-    { name: 'Dinner', emoji: '🍽️', items: ['Chicken', 'Fish', 'Vegetables', 'Curry', 'Steak'] },
-    { name: 'Snacks', emoji: '🍎', items: ['Fruits', 'Nuts', 'Yogurt', 'Protein Bar', 'Chips'] },
-    { name: 'Drinks', emoji: '🥤', items: ['Water', 'Juice', 'Coffee', 'Tea', 'Smoothie'] },
+    {
+      name: "Breakfast",
+      emoji: "🍳",
+      items: [
+        { name: "Oatmeal", calories: 150 },
+        { name: "Eggs", calories: 140 },
+        { name: "Toast", calories: 120 },
+        { name: "Smoothie", calories: 250 },
+        { name: "Cereal", calories: 180 }
+      ]
+    },
+    {
+      name: "Lunch",
+      emoji: "🍱",
+      items: [
+        { name: "Rice Bowl", calories: 400 },
+        { name: "Salad", calories: 220 },
+        { name: "Sandwich", calories: 350 },
+        { name: "Pasta", calories: 450 },
+        { name: "Soup", calories: 180 }
+      ]
+    },
+    {
+      name: "Dinner",
+      emoji: "🍽️",
+      items: [
+        { name: "Chicken", calories: 300 },
+        { name: "Fish", calories: 280 },
+        { name: "Vegetables", calories: 200 },
+        { name: "Curry", calories: 350 },
+        { name: "Steak", calories: 450 }
+      ]
+    },
+    {
+      name: "Snacks",
+      emoji: "🍎",
+      items: [
+        { name: "Fruits", calories: 100 },
+        { name: "Nuts", calories: 180 },
+        { name: "Yogurt", calories: 120 },
+        { name: "Protein Bar", calories: 220 },
+        { name: "Chips", calories: 250 }
+      ]
+    },
+    {
+      name: "Drinks",
+      emoji: "🥤",
+      items: [
+        { name: "Water", calories: 0 },
+        { name: "Juice", calories: 120 },
+        { name: "Coffee", calories: 50 },
+        { name: "Tea", calories: 30 },
+        { name: "Smoothie", calories: 250 }
+      ]
+    }
   ];
 
   // Meditation Types
@@ -1611,6 +1863,86 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
       alert("Network error");
     }
   };
+  const handleSaveFoodLog = async () => {
+    try {
+      // ✅ SAVE (UPSERT handles create + edit)
+      await fetch(`${API_URL}/fitness/nutrition/log`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`
+        },
+        body: JSON.stringify({
+          category: "Mixed",
+          items: todayFoodLog   // ✅ FINAL edited list
+        })
+      });
+
+
+      // ✅ Update dashboard immediately
+      const calories = todayFoodLog.reduce(
+        (sum, i) => sum + Number(i.calories || 0),
+        0
+      );
+
+      setSavedTodayFoodLog(todayFoodLog);
+      setSavedTodayCalories(calories);
+      // 🔥 FORCE CALENDAR UPDATE
+      setCalendarRefreshKey(prev => prev + 1);
+      // ✅ Refresh stats (today / yesterday dropdown)
+      await fetchCalories(calorieView);
+
+      // ✅ Close modal
+      setShowFoodTracker(false);
+      setIsEditingToday(false);
+
+    } catch (err) {
+      console.error("Food log save failed", err);
+      alert("Failed to save food log");
+    }
+  };
+  const handleSaveCalorieTarget = async (calculatedTarget) => {
+    try {
+      await fetch(`${API_URL}/fitness/nutrition/target`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({
+          targetCalories: calculatedTarget,
+        }),
+      });
+
+      // ✅ update UI instantly
+      setCalorieTarget(calculatedTarget);
+    } catch (err) {
+      console.error("Failed to save calorie target", err);
+    }
+  };
+
+
+  const deleteFoodItem = (index) => {
+    const removedItem = todayFoodLog[index];
+
+    // reduce calories
+    setTotalCalories(prev => prev - removedItem.calories);
+
+    // remove item from list
+    setTodayFoodLog(prev =>
+      prev.filter((_, i) => i !== index)
+    );
+  };
+  const getProgressEmoji = (progress) => {
+    if (progress === 0) return "😢";
+    if (progress < 25) return "😟";
+    if (progress < 50) return "🙂";
+    if (progress < 75) return "😄";
+    return "🤩";
+  };
+
+  const emojiLeftPosition = Math.min(progress, 100); // % based movement
+
 
   return (
     <div className="space-y-6">
@@ -1651,52 +1983,21 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
           <p className="text-orange-100 text-sm mb-4">
             {goal ? goal.goal : 'Choose your workout activity'}
           </p>
-
-          <div className="flex items-center justify-between">
-            <div className="flex gap-1">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div
-                  key={i}
-                  className={`w-2 h-2 rounded-full transition-all duration-300 ${i <= Math.max(1, activeDots)
-                    ? "bg-white"
-                    : "bg-white bg-opacity-30"
-                    }`}
-                ></div>
-              ))}
+          {/* Progress Bar */}
+          <div className="w-full mt-2">
+            <div className="h-2 bg-white bg-opacity-20 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-white transition-all duration-500"
+                style={{ width: `${progress}%` }}
+              />
             </div>
 
-            {goal ? (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowDurationModal(true)}
-                  disabled={isGoalCompleted}
-                  className={`text-sm px-4 py-2 rounded-lg transition ${isGoalCompleted
-                    ? "bg-white bg-opacity-10 cursor-not-allowed"
-                    : "bg-white bg-opacity-20 hover:bg-opacity-30"
-                    }`}
-                >
-                  {isGoalCompleted ? "Goal Completed" : "Track Now →"}
-                </button>
+            <p className="text-xs text-white mt-1">
+              {progress}% completed
+            </p>
+          </div>
 
-
-                <button
-                  onClick={() => {
-                    setShowActivities(true);
-                  }}
-                  className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
-                >
-                  {isGoalCompleted ? "Set Goal" : "Change Goal"}
-                </button>
-
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowActivities(true)}
-                className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
-              >
-                Set Goal →
-              </button>
-            )}
+          <div className="flex items-center justify-between">
             {showDurationModal && (
               <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                 <div className="bg-white rounded-xl shadow-2xl p-6 w-80">
@@ -1746,42 +2047,260 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
                 </div>
               </div>
             )}
+          </div>
+          {/* Action Buttons (Bottom aligned like Nutrition) */}
+          <div className="flex flex-col gap-2 items-end mt-6">
 
+            <button
+              onClick={() => setShowDurationModal(true)}
+              disabled={isGoalCompleted}
+              className={`text-sm px-4 py-2 rounded-lg transition
+                ${isGoalCompleted
+                  ? "bg-white bg-opacity-10 cursor-not-allowed"
+                  : "bg-white bg-opacity-20 hover:bg-opacity-30"
+                }`}
+            >
+              {isGoalCompleted ? "Goal Completed" : "Track Now"}
+            </button>
 
+            <button
+              onClick={() => setShowActivities(true)}
+              className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
+            >
+              {isGoalCompleted ? "Set Goal" : "Change Goal"}
+            </button>
+
+          </div>
+          {/* Progress Emoji (Bottom Left) */}
+          <div className="absolute bottom-10 left-4 text-4xl transition-all duration-300">
+            {getProgressEmoji(progress)}
           </div>
         </div>
 
-        {/* Diet/Nutrition Card */}
+        {/* Diet / Nutrition Card */}
         <div className="bg-gradient-to-br from-green-400 to-emerald-600 rounded-xl shadow-lg p-6 text-white hover:shadow-2xl transition-all transform hover:scale-105">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-16 h-16 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
-              <span className="text-4xl">🍎</span>
+
+          {/* Header */}
+          <div className="flex items-start justify-between mb-4">
+            {/* LEFT SIDE */}
+            <div className="flex flex-col gap-2">
+              <div className="w-16 h-16 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+                <span className="text-4xl">🍎</span>
+              </div>
+
+              {/* 🎯 TOP-LEFT BUTTON */}
+              <button
+                onClick={() => setShowCalorieModal(true)}
+                className="text-xs bg-white bg-opacity-20 px-3 py-1 rounded-md hover:bg-opacity-30 w-fit"
+              >
+                🎯 {calorieTarget ? "Recalculate Target" : "Set Calorie Target"}
+              </button>
             </div>
+
+            {/* RIGHT SIDE */}
             <div className="text-right">
               <p className="text-sm text-green-100">Calories</p>
-              <p className="text-2xl font-bold">0%</p>
+
+              <p className="text-2xl font-bold">
+                {savedTodayCalories}
+                {calorieTarget && ` / ${calorieTarget}`} kcal
+              </p>
+
+              {calorieTarget && (
+                <p className="text-xs text-green-100 mt-1">
+                  Daily Target
+                </p>
+              )}
             </div>
           </div>
 
+          {/* Title */}
           <h3 className="text-xl font-bold mb-2">NUTRITION</h3>
           <p className="text-green-100 text-sm mb-4">
             Track your daily meals and calories
           </p>
+          {/* 🔥 Calorie Progress Bar */}
+          {calorieTarget && (
+            <div className="mt-3">
+              <div className="w-full h-2 bg-white bg-opacity-20 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-500 ${savedTodayCalories > calorieTarget
+                    ? "bg-red-500"
+                    : "bg-white"
+                    }`}
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.round((savedTodayCalories / calorieTarget) * 100)
+                    )}%`
+                  }}
+                />
+              </div>
+            </div>
+          )}
+          {/* ⚠️ Over / Under Target Indicator */}
+          {calorieTarget && (
+            <p className="mt-2 text-xs font-semibold">
+              {savedTodayCalories > calorieTarget && (
+                <span className="text-red-100">
+                  ⚠️ Over target by {savedTodayCalories - calorieTarget} kcal
+                </span>
+              )}
 
+              {savedTodayCalories < calorieTarget && (
+                <span className="text-green-100">
+                  ✅ {calorieTarget - savedTodayCalories} kcal remaining
+                </span>
+              )}
+
+              {savedTodayCalories === calorieTarget && (
+                <span className="text-white">
+                  🎯 Target achieved
+                </span>
+              )}
+            </p>
+          )}
+
+          {/* Footer */}
           <div className="flex items-center justify-between">
+
+            {/* Progress dots */}
             <div className="flex gap-1">
               {[1, 2, 3, 4, 5].map(i => (
-                <div key={i} className="w-2 h-2 rounded-full bg-white bg-opacity-30"></div>
+                <div
+                  key={i}
+                  className="w-2 h-2 rounded-full bg-white bg-opacity-30"
+                />
               ))}
             </div>
-            <button
-              onClick={() => setShowFoodTracker(true)}
-              className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
-            >
-              Track Now →
-            </button>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col gap-2 items-end">
+
+              {/* ➕ Add Today’s Food (always visible) */}
+              <button
+                disabled={savedTodayFoodLog.length > 0}
+                onClick={() => {
+                  setIsEditingToday(false);
+                  setTodayFoodLog([]);
+                  setTotalCalories(0);
+                  setShowFoodTracker(true);
+                }}
+                className={`text-sm px-4 py-2 rounded-lg transition
+                  ${savedTodayFoodLog.length > 0
+                    ? "bg-white bg-opacity-10 cursor-not-allowed"
+                    : "bg-white bg-opacity-20 hover:bg-opacity-30"
+                  }`}
+              >
+                ➕ Add Today’s Food
+              </button>
+
+              {/* ✏️ Edit Today’s Food (only after saving once) */}
+              {savedTodayFoodLog.length > 0 && (
+                <button
+                  onClick={() => {
+                    setTodayFoodLog(savedTodayFoodLog);
+                    setTotalCalories(savedTodayCalories);
+                    setIsEditingToday(true);
+                    setShowFoodTracker(true);
+                  }}
+                  className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
+                >
+                  ✏️ Edit Today’s Food
+                </button>
+              )}
+
+            </div>
           </div>
         </div>
+
+        {/* 🔥 PUT CALORIE CALCULATOR MODAL HERE 🔥 */}
+        {showCalorieModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl p-6 w-96 shadow-2xl">
+              <h3 className="text-xl font-bold mb-4">
+                🎯 Daily Calorie Target(BMR)
+              </h3>
+
+              <div className="space-y-3">
+                <select
+                  value={calorieForm.gender}
+                  onChange={(e) =>
+                    setCalorieForm({ ...calorieForm, gender: e.target.value })
+                  }
+                  className="w-full border px-3 py-2 rounded"
+                >
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </select>
+
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="Age"
+                  value={calorieForm.age}
+                  onChange={(e) => {
+                    const value = Math.max(1, Number(e.target.value));
+                    setCalorieForm({ ...calorieForm, age: value });
+                  }}
+                  className="w-full border px-3 py-2 rounded"
+                />
+
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="Height (cm)"
+                  value={calorieForm.height}
+                  onChange={(e) => {
+                    const value = Math.max(1, Number(e.target.value));
+                    setCalorieForm({ ...calorieForm, height: value });
+                  }}
+                  className="w-full border px-3 py-2 rounded"
+                />
+
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="Weight (kg)"
+                  value={calorieForm.weight}
+                  onChange={(e) => {
+                    const value = Math.max(1, Number(e.target.value));
+                    setCalorieForm({ ...calorieForm, weight: value });
+                  }}
+                  className="w-full border px-3 py-2 rounded"
+                />
+
+                <select
+                  value={calorieForm.activity}
+                  onChange={(e) =>
+                    setCalorieForm({ ...calorieForm, activity: e.target.value })
+                  }
+                  className="w-full border px-3 py-2 rounded"
+                >
+                  <option value="low">Low activity</option>
+                  <option value="moderate">Moderate activity</option>
+                  <option value="high">High activity</option>
+                </select>
+
+                <div className="flex gap-2 pt-3">
+                  <button
+                    onClick={calculateCalories}
+                    className="flex-1 bg-green-600 text-white py-2 rounded"
+                  >
+                    Calculate
+                  </button>
+
+                  <button
+                    onClick={() => setShowCalorieModal(false)}
+                    className="flex-1 bg-gray-200 py-2 rounded"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Mental Wellness Card */}
         <div className="bg-gradient-to-br from-purple-400 to-indigo-600 rounded-xl shadow-lg p-6 text-white hover:shadow-2xl transition-all transform hover:scale-105">
@@ -1841,7 +2360,7 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
                   : goalsCompletedLastWeek
                 ).map((g, i) => (
                   <li key={i}>
-                    {i + 1} – {g.goal}
+                    {i + 1} – {g.goal} ({g.targetMinutes} mins)
                   </li>
                 ))}
               </ul>
@@ -1852,8 +2371,38 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
             )}
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-3xl font-bold text-green-500">0</p>
-            <p className="text-sm text-gray-600">Calories tracked</p>
+            <p className="text-3xl font-bold text-green-500">
+              {calorieTotal}
+            </p>
+
+            <p className="text-sm text-gray-600">
+              Calories tracked
+            </p>
+
+            {/* Dropdown */}
+            <select
+              value={calorieView}
+              onChange={(e) => setCalorieView(e.target.value)}
+              className="border px-3 py-2 rounded text-sm mt-3"
+            >
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+            </select>
+
+            {/* Food List */}
+            {calorieItems.length > 0 ? (
+              <ul className="list-disc ml-5 mt-3 space-y-1 text-sm text-gray-700 text-left">
+                {calorieItems.map((item, i) => (
+                  <li key={i}>
+                    {item.name} – {item.calories} kcal
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-400 mt-3">
+                No food logged
+              </p>
+            )}
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
             <p className="text-3xl font-bold text-purple-500">0</p>
@@ -1862,7 +2411,10 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
         </div>
 
       </div>
-      <FitnessCalendar token={token} key={calendarKey} />
+      <FitnessCalendar
+        token={token}
+        refreshKey={calendarRefreshKey}
+      />
 
       {/* Activity Selection Modal */}
       {showActivities && (
@@ -1919,19 +2471,181 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
                     {category.items.map((item, i) => (
                       <button
                         key={i}
+                        onClick={() => {
+                          setSelectedFood({
+                            name: item.name,
+                            baseCalories: item.calories,
+                            baseGrams: 100
+                          });
+                          setFoodGrams("");
+                        }}
                         className="bg-white rounded-lg p-3 text-center hover:bg-green-100 transition border border-green-200"
                       >
-                        <p className="text-sm font-semibold text-gray-800">{item}</p>
-                        <p className="text-xs text-gray-500 mt-1">Add +</p>
+                        <p className="text-sm font-semibold text-gray-800">
+                          {item.name}
+                        </p>
+
+                        <p className="text-xs text-gray-500">
+                          {item.calories} kcal
+                        </p>
+
+                        <p className="text-xs text-green-600 mt-1">Add +</p>
                       </button>
                     ))}
                   </div>
                 </div>
               ))}
             </div>
+            {todayFoodLog.length > 0 && (
+              <div className="mt-6 bg-gray-50 rounded-lg p-4">
+                <h4 className="font-bold mb-2">🍽 Today’s Food</h4>
+
+                <ul className="space-y-1 text-sm text-gray-700">
+                  {todayFoodLog.map((item, i) => (
+                    <li
+                      key={i}
+                      className="flex justify-between items-center"
+                    >
+                      <span>
+                        {item.name}
+                        {item.grams ? ` (${item.grams}g)` : ""} – {item.calories} kcal
+                      </span>
+
+                      <button
+                        onClick={() => {
+                          setTodayFoodLog(prev =>
+                            prev.filter((_, index) => index !== i)
+                          );
+                          setTotalCalories(prev => prev - item.calories);
+                        }}
+                        className="text-red-500 text-sm hover:text-red-700"
+                      >
+                        ❌
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+
+                <p className="mt-2 font-semibold">
+                  Total: {totalCalories} kcal
+                </p>
+              </div>
+            )}
+            <button
+              disabled={todayFoodLog.length === 0}
+              onClick={handleSaveFoodLog}
+              className={`w-full mt-4 py-3 rounded-lg text-white
+                ${todayFoodLog.length === 0
+                  ? "bg-gray-400 cursor-not-allowed"
+                  : "bg-green-600 hover:bg-green-700"
+                }`}
+            >
+              {isEditingToday ? "Update Today’s Log" : "Save Today’s Log"}
+            </button>
           </div>
         </div>
       )}
+      {selectedFood && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-80 shadow-2xl">
+            <h3 className="text-lg font-bold mb-2">
+              {selectedFood.name}
+            </h3>
+
+            <p className="text-sm text-gray-600 mb-3">
+              {requiresGrams(selectedFood.name)
+                ? `Base: ${selectedFood.baseCalories} kcal per ${selectedFood.baseGrams}g`
+                : `Base: ${selectedFood.baseCalories} kcal`}
+            </p>
+
+            {requiresGrams(selectedFood.name) && (
+              <input
+                type="number"
+                min="1"
+                placeholder="Enter grams eaten"
+                value={foodGrams}
+                onChange={(e) =>
+                  setFoodGrams(Math.max(1, Number(e.target.value)))
+                }
+                className="w-full border px-3 py-2 rounded mb-4"
+              />
+            )}
+
+            {requiresLiters(selectedFood.name) && (
+              <input
+                type="number"
+                min="0.1"
+                step="0.1"
+                placeholder="Enter liters consumed"
+                value={foodGrams}
+                onChange={(e) =>
+                  setFoodGrams(Math.max(0.1, Number(e.target.value)))
+                }
+                className="w-full border px-3 py-2 rounded mb-4"
+              />
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  if (
+                    (requiresGrams(selectedFood.name) ||
+                      requiresLiters(selectedFood.name)) &&
+                    !foodGrams
+                  ) {
+                    alert("Please enter quantity");
+                    return;
+                  }
+
+                  let calories = 0;
+
+                  if (requiresGrams(selectedFood.name)) {
+                    calories =
+                      (foodGrams / selectedFood.baseGrams) *
+                      selectedFood.baseCalories;
+                  } else if (requiresLiters(selectedFood.name)) {
+                    calories = 0; // water = 0 kcal
+                  } else {
+                    calories = selectedFood.baseCalories;
+                  }
+
+                  const roundedCalories = Math.round(calories);
+
+                  setTotalCalories(prev => prev + roundedCalories);
+
+                  setTodayFoodLog(prev => [
+                    ...prev,
+                    {
+                      name: selectedFood.name,
+                      quantity: foodGrams,
+                      unit: requiresLiters(selectedFood.name)
+                        ? "L"
+                        : requiresGrams(selectedFood.name)
+                          ? "g"
+                          : null,
+                      calories: roundedCalories
+                    }
+                  ]);
+
+                  setSelectedFood(null);
+                  setFoodGrams("");
+                }}
+                className="flex-1 bg-green-600 text-white py-2 rounded"
+              >
+                Add
+              </button>
+
+              <button
+                onClick={() => setSelectedFood(null)}
+                className="flex-1 bg-gray-200 py-2 rounded"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* Meditation Modal */}
       {showMeditation && (
@@ -2021,7 +2735,7 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
       <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
         <p className="text-sm font-semibold text-blue-800">💡 Quick Tip</p>
         <p className="text-sm text-blue-700 mt-1">
-          Set specific, measurable goals for better results. Track your progress in Daily Routine!
+          Set specific, measurable goals for better results.
         </p>
       </div>
     </div>
@@ -2029,28 +2743,52 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
 };
 
 // ================= FITNESS CALENDAR =================
-const FitnessCalendar = ({ token }) => {
+const FitnessCalendar = ({ token, refreshKey }) => {
   const [view, setView] = useState("month"); // month | week1 | week2 | week3 | week4
   const [workouts, setWorkouts] = useState([]);
   const [weekView, setWeekView] = useState("this");
   const [goalsCompletedThisWeek, setGoalsCompletedThisWeek] = useState([]);
   const [goalsCompletedLastWeek, setGoalsCompletedLastWeek] = useState([]);
+  const [foodLogs, setFoodLogs] = useState([]);
+  const [calendarData, setCalendarData] = useState({});
+  const toKey = (d) => new Date(d).toLocaleDateString("en-CA");
 
   useEffect(() => {
+    // Fetch workouts
     fetch(`${API_URL}/fitness/activity/history`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(res => res.json())
-      .then(data => setWorkouts(data || []))
-      .catch(err => console.error("Calendar fetch error:", err));
-  }, [token]);
+      .then(data => setWorkouts(data || []));
 
-  // ✅ Group workouts by ISO date
+    // Fetch nutrition logs
+    fetch(`${API_URL}/fitness/nutrition/logs/month`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => res.json())
+      .then(data => setFoodLogs(data || []))
+      .catch(err => console.error("Calendar fetch error:", err));
+  }, [token, refreshKey]);
+
+
+  // ✅ Group workouts by date (YYYY-MM-DD)
   const grouped = workouts.reduce((acc, w) => {
-    const key = new Date(w.date).toISOString().split("T")[0];
-    acc[key] = (acc[key] || 0) + w.duration;
+    const key = toKey(w.date);
+    acc[key] = (acc[key] || 0) + Number(w.duration || 0);
     return acc;
   }, {});
+  const groupedCalories = foodLogs.reduce((acc, log) => {
+    const key = toKey(log.date); // YYYY-MM-DD
+
+    const total = log.items.reduce(
+      (sum, item) => sum + Number(item.calories || 0),
+      0
+    );
+
+    acc[key] = (acc[key] || 0) + total;
+    return acc;
+  }, {});
+
 
   // ✅ Build weeks of current month (1–28 only, clean & predictable)
   const today = new Date();
@@ -2064,7 +2802,7 @@ const FitnessCalendar = ({ token }) => {
 
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month, day);
-    const key = date.toISOString().split("T")[0];
+    const key = date.toLocaleDateString("en-CA");
 
     // ISO week number inside the month
     const weekOfMonth = Math.ceil(
@@ -2078,7 +2816,8 @@ const FitnessCalendar = ({ token }) => {
     weeks[`week${weekOfMonth}`].push({
       date,
       key,
-      minutes: grouped[key] || 0
+      minutes: grouped[key] || 0,
+      calories: groupedCalories[key] || 0
     });
   }
 
@@ -2088,7 +2827,15 @@ const FitnessCalendar = ({ token }) => {
     acc[w] = weeks[w].reduce((s, d) => s + d.minutes, 0);
     return acc;
   }, {});
-
+  const weeklyCalorieTotals = Object.keys(weeks).reduce((acc, w) => {
+    acc[w] = weeks[w].reduce(
+      (sum, d) => sum + (groupedCalories[d.key] || 0),
+      0
+    );
+    return acc;
+  }, {});
+  console.log("Food logs:", foodLogs);
+  console.log("Grouped calories:", groupedCalories);
 
   return (
     <div className="bg-white rounded-xl shadow-sm p-6 mt-6">
@@ -2119,14 +2866,14 @@ const FitnessCalendar = ({ token }) => {
               <tr>
                 <th className="p-2 text-left">Date</th>
                 <th className="p-2 text-center">Workout (mins)</th>
-                <th className="p-2 text-center">Nutrition</th>
+                <th className="p-2 text-center">Nutrition (kcal)</th>
                 <th className="p-2 text-center">Mindfulness</th>
               </tr>
             </thead>
             <tbody>
               {weeks[view]?.map(d => {
                 const isToday =
-                  d.key === new Date().toISOString().split("T")[0];
+                  d.key === toKey(new Date());
 
                 return (
                   <tr
@@ -2139,7 +2886,9 @@ const FitnessCalendar = ({ token }) => {
                       {isToday && " 🟢"}
                     </td>
                     <td className="p-2 text-center">{d.minutes}</td>
-                    <td className="p-2 text-center text-gray-400">—</td>
+                    <td className="p-2 text-center">
+                      {groupedCalories[d.key] || 0}
+                    </td>
                     <td className="p-2 text-center text-gray-400">—</td>
                   </tr>
                 );
@@ -2149,7 +2898,10 @@ const FitnessCalendar = ({ token }) => {
 
           {/* Weekly total */}
           <div className="mt-2 text-right text-sm font-semibold">
-            Total this week:{weeklyTotals[view] || 0} mins
+            Workout this week: {weeklyTotals[view] || 0} mins
+          </div>
+          <div className="mt-2 text-right text-sm font-semibold">
+            Calories this week: {weeklyCalorieTotals[view] || 0} kcal
           </div>
         </div>
       )}
@@ -2159,7 +2911,7 @@ const FitnessCalendar = ({ token }) => {
         <div className="grid grid-cols-7 gap-2 text-center text-sm mt-4">
           {Array.from({ length: daysInMonth }).map((_, i) => {
             const date = new Date(year, month, i + 1);
-            const key = date.toISOString().split("T")[0];
+            const key = date.toLocaleDateString("en-CA");
             const minutes = grouped[key] || 0;
             const isToday =
               key === new Date().toISOString().split("T")[0];

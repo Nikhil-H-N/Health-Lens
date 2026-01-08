@@ -1,11 +1,37 @@
 const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middleware/authMiddleware");
-
+const FoodLog = require("../models/FoodLog");
 const FitnessGoal = require("../models/FitnessGoal");
 const FitnessActivity = require("../models/FitnessActivity");
-const FoodLog = require("../models/FoodLog");
+const CalorieTarget = require("../models/CaloriesTarget");
+
 const MeditationLog = require("../models/MeditationLog");
+// 🎯 SAVE CALORIE TARGET
+router.post("/nutrition/target", authMiddleware, async (req, res) => {
+  try {
+    const { targetCalories } = req.body;
+
+    const target = await CalorieTarget.findOneAndUpdate(
+      { userId: req.user.id },
+      { targetCalories },
+      { upsert: true, new: true }
+    );
+
+    res.json(target);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to save calorie target" });
+  }
+});
+// 🎯 GET CALORIE TARGET
+router.get("/nutrition/target", authMiddleware, async (req, res) => {
+  try {
+    const target = await CalorieTarget.findOne({ userId: req.user.id });
+    res.json(target || {});
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch calorie target" });
+  }
+});
 
 //SAVEFITNESS GOAL
 router.post("/goal", authMiddleware, async (req, res) => {
@@ -66,7 +92,9 @@ router.post("/activity", authMiddleware, async (req, res) => {
       userId: req.user.id,           // ✅ FIXED
       activity,
       duration,
-      date: date ? new Date(date) : new Date(), // ✅ FIXED
+      date: new Date(
+        new Date().toLocaleDateString("en-CA") // YYYY-MM-DD
+      )
     });
 
     await newActivity.save();
@@ -133,20 +161,28 @@ router.get("/activities/week", authMiddleware, async (req, res) => {
 // 🍎 LOG FOOD
 router.post("/nutrition/log", authMiddleware, async (req, res) => {
   try {
-    const { category, items } = req.body;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
 
-    const foodLog = new FoodLog({
-      userId: req.user.id,
-      category,
-      items,
-    });
+    const log = await FoodLog.findOneAndUpdate(
+      {
+        userId: req.user.id,
+        date: { $gte: start }
+      },
+      {
+        category: "Mixed",
+        items: req.body.items,
+        date: new Date(new Date().toLocaleDateString("en-CA"))
+      },
+      { upsert: true, new: true }
+    );
 
-    await foodLog.save();
-    res.json(foodLog);
+    res.json(log);
   } catch (err) {
-    res.status(500).json({ message: "Error logging food" });
+    res.status(500).json({ message: "Error saving food log" });
   }
 });
+
 
 
 // 🍎 GET TODAY'S FOOD LOGS
@@ -163,6 +199,22 @@ router.get("/nutrition/logs/today", authMiddleware, async (req, res) => {
     res.json(logs);
   } catch (err) {
     res.status(500).json({ message: "Error fetching food logs" });
+  }
+});
+// ❌ DELETE TODAY'S FOOD LOG (for edit)
+router.delete("/nutrition/logs/today", authMiddleware, async (req, res) => {
+  try {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+
+    await FoodLog.deleteMany({
+      userId: req.user.id,
+      date: { $gte: start }
+    });
+
+    res.json({ message: "Today's food log cleared" });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to delete food logs" });
   }
 });
 
@@ -264,7 +316,7 @@ router.get("/calendar", authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Current month range
+    // Month range
     const start = new Date();
     start.setDate(1);
     start.setHours(0, 0, 0, 0);
@@ -272,31 +324,55 @@ router.get("/calendar", authMiddleware, async (req, res) => {
     const end = new Date(start);
     end.setMonth(end.getMonth() + 1);
 
+    /* ───── WORKOUTS ───── */
     const activities = await FitnessActivity.find({
       userId,
       date: { $gte: start, $lt: end }
     });
 
-    // Group by date (YYYY-MM-DD)
+    /* ───── FOOD LOGS ───── */
+    const foodLogs = await FoodLog.find({
+      userId,
+      date: { $gte: start, $lt: end }
+    });
+
+    /* ───── AGGREGATE BY DAY ───── */
     const calendarData = {};
 
+    // workouts
     activities.forEach(a => {
       const day = a.date.toISOString().split("T")[0];
       if (!calendarData[day]) {
         calendarData[day] = {
-          totalMinutes: 0,
-          workouts: 0
+          workoutMinutes: 0,
+          calories: 0
         };
       }
-      calendarData[day].totalMinutes += a.duration;
-      calendarData[day].workouts += 1;
+      calendarData[day].workoutMinutes += a.duration;
+    });
+
+    // calories
+    foodLogs.forEach(log => {
+      const day = log.date.toISOString().split("T")[0];
+      if (!calendarData[day]) {
+        calendarData[day] = {
+          workoutMinutes: 0,
+          calories: 0
+        };
+      }
+      log.items.forEach(item => {
+        calendarData[day].calories += Number(item.calories || 0);
+      });
     });
 
     res.json(calendarData);
+
   } catch (err) {
+    console.error("Calendar error", err);
     res.status(500).json({ error: "Failed to fetch calendar data" });
   }
 });
+
 
 // 📊 WEEKLY FITNESS STATS
 router.get("/weekly-stats", authMiddleware, async (req, res) => {
@@ -323,7 +399,7 @@ router.get("/weekly-stats", authMiddleware, async (req, res) => {
       userId: req.user.id,
       status: "completed",
       completedAt: { $gte: startOfThisWeek }
-    }).select("goal completedAt");
+    }).select("goal completedAt targetMinutes");
 
     // ✅ Goals completed LAST WEEK (only most recent week)
     const completedLastWeek = await FitnessGoal.find({
@@ -333,7 +409,7 @@ router.get("/weekly-stats", authMiddleware, async (req, res) => {
         $gte: startOfLastWeek,
         $lte: endOfLastWeek
       }
-    }).select("goal completedAt");
+    }).select("goal completedAt targetMinutes");
 
     res.json({
       workoutsThisWeek: completedThisWeek.length,
@@ -344,6 +420,50 @@ router.get("/weekly-stats", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("❌ Weekly stats error:", err);
     res.status(500).json({ message: "Error fetching weekly stats" });
+  }
+});
+// 🍎 GET YESTERDAY'S FOOD LOGS
+router.get("/nutrition/logs/yesterday", authMiddleware, async (req, res) => {
+  try {
+    const startOfYesterday = new Date();
+    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+    startOfYesterday.setHours(0, 0, 0, 0);
+
+    const endOfYesterday = new Date(startOfYesterday);
+    endOfYesterday.setHours(23, 59, 59, 999);
+
+    const logs = await FoodLog.find({
+      userId: req.user.id,
+      date: {
+        $gte: startOfYesterday,
+        $lte: endOfYesterday
+      }
+    });
+
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching yesterday food logs" });
+  }
+});
+
+// 🍎 GET MONTHLY NUTRITION LOGS (for calendar)
+router.get("/nutrition/logs/month", authMiddleware, async (req, res) => {
+  try {
+    const start = new Date();
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(start);
+    end.setMonth(end.getMonth() + 1);
+
+    const logs = await FoodLog.find({
+      userId: req.user.id,
+      date: { $gte: start, $lt: end }
+    });
+
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch monthly food logs" });
   }
 });
 

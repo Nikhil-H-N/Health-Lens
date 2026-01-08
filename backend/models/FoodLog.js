@@ -13,6 +13,7 @@ const FoodLogSchema = new mongoose.Schema({
   items: [{
     name: String,
     calories: Number,
+    grams: Number,
     protein: Number,
     carbs: Number,
     fat: Number
