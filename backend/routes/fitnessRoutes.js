@@ -272,6 +272,36 @@ router.get("/meditation/streak", authMiddleware, async (req, res) => {
     res.status(500).json({ message: "Error calculating streak" });
   }
 });
+// 🧘 GET TODAY'S MEDITATIONS
+router.get("/meditation/today", authMiddleware, async (req, res) => {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+
+  const logs = await MeditationLog.find({
+    userId: req.user.id,
+    date: { $gte: start }
+  });
+
+  res.json(logs);
+});
+
+// 🧘 GET YESTERDAY'S MEDITATIONS
+router.get("/meditation/yesterday", authMiddleware, async (req, res) => {
+  const start = new Date();
+  start.setDate(start.getDate() - 1);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setHours(23, 59, 59, 999);
+
+  const logs = await MeditationLog.find({
+    userId: req.user.id,
+    date: { $gte: start, $lte: end }
+  });
+
+  res.json(logs);
+});
+
 
 // 📊 GET FITNESS PROGRESS (WEEKLY)
 router.get("/progress", authMiddleware, async (req, res) => {
@@ -335,6 +365,11 @@ router.get("/calendar", authMiddleware, async (req, res) => {
       userId,
       date: { $gte: start, $lt: end }
     });
+    /* ───── MEDITATIONS ───── */
+    const meditations = await MeditationLog.find({
+      userId,
+      date: { $gte: start, $lt: end }
+    });
 
     /* ───── AGGREGATE BY DAY ───── */
     const calendarData = {};
@@ -345,7 +380,8 @@ router.get("/calendar", authMiddleware, async (req, res) => {
       if (!calendarData[day]) {
         calendarData[day] = {
           workoutMinutes: 0,
-          calories: 0
+          calories: 0,
+          meditationMinutes: 0
         };
       }
       calendarData[day].workoutMinutes += a.duration;
@@ -357,12 +393,25 @@ router.get("/calendar", authMiddleware, async (req, res) => {
       if (!calendarData[day]) {
         calendarData[day] = {
           workoutMinutes: 0,
-          calories: 0
+          calories: 0,
+          meditationMinutes: 0
         };
       }
       log.items.forEach(item => {
         calendarData[day].calories += Number(item.calories || 0);
       });
+    });
+    // meditation minutes
+    meditations.forEach(m => {
+      const day = m.date.toISOString().split("T")[0];
+      if (!calendarData[day]) {
+        calendarData[day] = {
+          workoutMinutes: 0,
+          calories: 0,
+          meditationMinutes: 0
+        };
+      }
+      calendarData[day].meditationMinutes += Number(m.duration || 0);
     });
 
     res.json(calendarData);
@@ -466,5 +515,21 @@ router.get("/nutrition/logs/month", authMiddleware, async (req, res) => {
     res.status(500).json({ message: "Failed to fetch monthly food logs" });
   }
 });
+router.get("/meditation/month", authMiddleware, async (req, res) => {
+  const start = new Date();
+  start.setDate(1);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + 1);
+
+  const logs = await MeditationLog.find({
+    userId: req.user.id,
+    date: { $gte: start, $lt: end }
+  });
+
+  res.json(logs);
+});
+
 
 module.exports = router;

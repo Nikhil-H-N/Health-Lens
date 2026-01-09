@@ -1,5 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from "react";
 import { Heart, FileText, Syringe, Target, MapPin, MessageSquare, Activity, LogOut, User, Menu, X, Plus, Trash2, TrendingUp, Calendar, CheckCircle } from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from "recharts";
+
 
 // ================= FOOD MASTER DATA =================
 // Base calories per standard serving (grams)
@@ -1498,6 +1509,22 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
   const [showCalorieModal, setShowCalorieModal] = useState(false);
   const [calorieTarget, setCalorieTarget] = useState(null);
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
+  const [selectedMeditation, setSelectedMeditation] = useState(null);
+  const [meditationMinutes, setMeditationMinutes] = useState(0);
+  const [isMeditating, setIsMeditating] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(0); // seconds
+  const [audio, setAudio] = useState(null);
+  const timerRef = useRef(null);
+  const timeLeftRef = useRef(0);
+  const meditationStartedRef = useRef(false);
+  const [meditationStreak, setMeditationStreak] = useState(0);
+  const [meditationView, setMeditationView] = useState("today"); // today | yesterday
+  const [meditationLogs, setMeditationLogs] = useState([]);
+  const [showMeditationComplete, setShowMeditationComplete] = useState(false);
+  const [completedMeditation, setCompletedMeditation] = useState(null);
+  // 🔥 live meditation update for calendar
+  const [liveMeditation, setLiveMeditation] = useState(null);
+
   const [calorieForm, setCalorieForm] = useState({
     weight: "",
     height: "",
@@ -1680,6 +1707,38 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
     setCalorieTarget(calories);
     setShowCalorieModal(false);
   };
+  const fetchMeditationStreak = async () => {
+    const res = await fetch(`${API_URL}/fitness/meditation/streak`, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+    const data = await res.json();
+    setMeditationStreak(data.streak || 0);
+  };
+  const fetchMeditationLogs = async (view) => {
+    const endpoint =
+      view === "today"
+        ? "/fitness/meditation/today"
+        : "/fitness/meditation/yesterday";
+
+    const res = await fetch(`${API_URL}${endpoint}`, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+
+    const data = await res.json();
+    setMeditationLogs(data || []);
+  };
+  useEffect(() => {
+    fetchMeditationStreak();
+    fetchMeditationLogs(meditationView);
+  }, []);
+
+  useEffect(() => {
+    fetchMeditationLogs(meditationView);
+  }, [meditationView]);
 
 
   useEffect(() => {
@@ -1942,6 +2001,128 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
   };
 
   const emojiLeftPosition = Math.min(progress, 100); // % based movement
+  const startMeditation = () => {
+    if (meditationStartedRef.current) return;
+
+    meditationStartedRef.current = true;
+
+    const totalSeconds = meditationMinutes * 60;
+    timeLeftRef.current = totalSeconds;
+
+    setTimeLeft(totalSeconds);
+    setIsMeditating(true);
+
+    const calmAudio = new Audio("/Meditation.mp3");
+    calmAudio.play();
+    setAudio(calmAudio);
+
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    timerRef.current = setInterval(() => {
+      timeLeftRef.current -= 1;
+
+      console.log("TICK:", timeLeftRef.current);
+
+      setTimeLeft(timeLeftRef.current);
+
+      if (timeLeftRef.current <= 0) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+
+        calmAudio.pause();
+        calmAudio.currentTime = 0;
+
+        meditationStartedRef.current = false;
+        stopMeditation(true);
+      }
+    }, 1000);
+  };
+
+
+  const stopMeditation = async (autoCompleted = false) => {
+    meditationStartedRef.current = false;
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+
+    timeLeftRef.current = 0;
+    setTimeLeft(0);
+    setIsMeditating(false);
+    setAudio(null);
+
+    // ✅ ONLY IF COMPLETED
+    if (autoCompleted) {
+
+      // 🔥 create completed object ONCE
+      const completed = {
+        type: selectedMeditation.name,
+        duration: meditationMinutes,
+        date: new Date().toISOString()
+      };
+
+      // ✅ save to backend (existing behavior)
+      await fetch(`${API_URL}/fitness/meditation/log`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify(completed),
+      });
+
+      // 🔥 NEW: instant UI update (NO refresh needed)
+      setLiveMeditation(completed);
+
+      // 🔥 existing UI logic (unchanged)
+      setCompletedMeditation({
+        type: selectedMeditation.name,
+        duration: meditationMinutes,
+      });
+
+      await refreshMeditationData();
+      setCalendarRefreshKey(prev => prev + 1);
+
+      setShowMeditationComplete(true);
+    }
+
+    if (!autoCompleted) {
+      setSelectedMeditation(null);
+      setShowMeditation(false);
+    }
+  };
+
+  const cancelMeditation = () => {
+    if (isMeditating) {
+      stopMeditation(false);
+    } else {
+      setSelectedMeditation(null);
+      setShowMeditation(false);
+    }
+  };
+  const refreshMeditationData = async () => {
+    await fetchMeditationStreak();
+    await fetchMeditationLogs(meditationView);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
+  // 🔹 Last 5 completed meditation sessions (latest first)
+  const lastFiveSessions = [...meditationLogs]
+    .slice(-5)
+    .reverse();
 
 
   return (
@@ -2192,7 +2373,7 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
                     : "bg-white bg-opacity-20 hover:bg-opacity-30"
                   }`}
               >
-                ➕ Add Today’s Food
+                ➕ Add Today’s Meals
               </button>
 
               {/* ✏️ Edit Today’s Food (only after saving once) */}
@@ -2206,7 +2387,7 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
                   }}
                   className="text-sm bg-white bg-opacity-20 px-4 py-2 rounded-lg hover:bg-opacity-30 transition"
                 >
-                  ✏️ Edit Today’s Food
+                  ✏️ Edit Today’s Meals
                 </button>
               )}
 
@@ -2319,6 +2500,7 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
             Meditation, sleep & mental health
           </p>
 
+
           <div className="flex items-center justify-between">
             <div className="flex gap-1">
               {[1, 2, 3, 4, 5].map(i => (
@@ -2331,6 +2513,60 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
             >
               Meditate →
             </button>
+          </div>
+
+          {/* 🔥 Streak + Last Sessions (pushed down) */}
+          <div className="mt-6 space-y-3">
+
+            {/* 🔥 Streak Badge */}
+            <div
+              className="
+      inline-flex items-center gap-2
+      bg-white bg-opacity-20
+      px-4 py-2
+      rounded-full
+      backdrop-blur-sm
+    "
+            >
+              <span className="text-xl">
+                {meditationStreak > 0 ? "🔥" : "🌱"}
+              </span>
+
+              <div className="leading-tight">
+                <p className="text-sm font-bold text-white">
+                  {meditationStreak > 0
+                    ? `${meditationStreak} Day Streak`
+                    : "Start Today"}
+                </p>
+                <p className="text-xs text-white opacity-80">
+                  Mindfulness
+                </p>
+              </div>
+            </div>
+
+            {/* 😌 Last 5 Sessions */}
+            <div className="w-full">
+              <p className="text-xs text-white opacity-80 mb-1">
+                Last 5 sessions
+              </p>
+
+              <div className="flex justify-between items-center">
+                {lastFiveSessions.map((s, i) => (
+                  <span key={i} className="text-xl">
+                    {s.type === "Sleep"
+                      ? "😴"
+                      : s.duration < 5
+                        ? "😢"
+                        : s.duration < 10
+                          ? "😌"
+                          : s.duration < 20
+                            ? "😊"
+                            : "🧘‍♂️"}
+                  </span>
+                ))}
+              </div>
+            </div>
+
           </div>
         </div>
       </div>
@@ -2405,8 +2641,35 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
             )}
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-3xl font-bold text-purple-500">0</p>
+            <p className="text-3xl font-bold text-purple-500">
+              {meditationStreak}
+            </p>
             <p className="text-sm text-gray-600">Meditation streak</p>
+
+            {/* Dropdown */}
+            <select
+              value={meditationView}
+              onChange={(e) => setMeditationView(e.target.value)}
+              className="border px-3 py-2 rounded text-sm mt-3"
+            >
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+            </select>
+
+            {/* Meditation list */}
+            {meditationLogs.length > 0 ? (
+              <ul className="list-disc ml-5 mt-3 space-y-1 text-sm text-gray-700 text-left">
+                {meditationLogs.map((m, i) => (
+                  <li key={i}>
+                    {m.type} – {m.duration} min
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-400 mt-3">
+                No meditation completed
+              </p>
+            )}
           </div>
         </div>
 
@@ -2414,6 +2677,7 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
       <FitnessCalendar
         token={token}
         refreshKey={calendarRefreshKey}
+        liveMeditation={liveMeditation}
       />
 
       {/* Activity Selection Modal */}
@@ -2668,7 +2932,15 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
                   <h4 className="font-bold text-center text-gray-800 mb-2">{type.name}</h4>
                   <p className="text-sm text-center text-purple-600 font-semibold mb-1">{type.duration}</p>
                   <p className="text-xs text-center text-gray-600">{type.benefit}</p>
-                  <button className="w-full mt-3 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition">
+                  <button
+                    onClick={() => {
+                      setSelectedMeditation(type);
+                      setMeditationMinutes(
+                        Number(type.duration.replace(" min", "")) // default minutes
+                      );
+                    }}
+                    className="w-full mt-3 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition"
+                  >
                     Start
                   </button>
                 </div>
@@ -2677,6 +2949,114 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
           </div>
         </div>
       )}
+      {selectedMeditation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-80 shadow-2xl">
+            <h3 className="text-lg font-bold mb-2">
+              🧘 {selectedMeditation.name}
+            </h3>
+
+            <p className="text-sm text-gray-600 mb-3">
+              Default: {selectedMeditation.duration}
+            </p>
+
+            {!isMeditating && (
+              <>
+                <label className="block text-sm font-semibold mb-1">
+                  Minutes (1–30)
+                </label>
+
+                <input
+                  type="number"
+                  min="1"
+                  max="30"
+                  value={meditationMinutes}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    if (value >= 1 && value <= 30) {
+                      setMeditationMinutes(value);
+                    }
+                  }}
+                  className="w-full border px-3 py-2 rounded mb-4"
+                />
+              </>
+            )}
+
+            {isMeditating && (
+              <p className="text-center text-lg font-bold mb-3">
+                ⏳ {String(Math.floor(timeLeft / 60)).padStart(2, "0")}:
+                {String(timeLeft % 60).padStart(2, "0")}
+              </p>
+            )}
+
+            <div className="flex gap-2">
+              {!isMeditating ? (
+                <>
+                  <button
+                    onClick={startMeditation}
+                    className="flex-1 bg-purple-600 text-white py-2 rounded"
+                  >
+                    Start
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setSelectedMeditation(null);
+                      setShowMeditation(false);
+                    }}
+                    className="flex-1 bg-gray-200 py-2 rounded"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => stopMeditation(false)}
+                  className="flex-1 bg-red-600 text-white py-2 rounded"
+                >
+                  Stop
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {showMeditationComplete && completedMeditation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-80 text-center">
+
+            <div className="text-5xl mb-3">🎉</div>
+
+            <h3 className="text-xl font-bold mb-2">
+              Meditation Completed
+            </h3>
+
+            <p className="text-gray-600 mb-4">
+              You completed
+              <span className="font-semibold text-purple-600">
+                {" "}{completedMeditation.type}
+              </span>{" "}
+              for{" "}
+              <span className="font-semibold">
+                {completedMeditation.duration} minutes
+              </span>
+            </p>
+
+            <button
+              onClick={() => {
+                setShowMeditationComplete(false);
+                setCompletedMeditation(null);
+                setSelectedMeditation(null);
+                setShowMeditation(false);
+              }}
+              className="w-full bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
 
       {/* Fitness Goal Editor (Modal) */}
       {editing && (
@@ -2743,7 +3123,7 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
 };
 
 // ================= FITNESS CALENDAR =================
-const FitnessCalendar = ({ token, refreshKey }) => {
+const FitnessCalendar = ({ token, refreshKey, liveMeditation }) => {
   const [view, setView] = useState("month"); // month | week1 | week2 | week3 | week4
   const [workouts, setWorkouts] = useState([]);
   const [weekView, setWeekView] = useState("this");
@@ -2751,6 +3131,7 @@ const FitnessCalendar = ({ token, refreshKey }) => {
   const [goalsCompletedLastWeek, setGoalsCompletedLastWeek] = useState([]);
   const [foodLogs, setFoodLogs] = useState([]);
   const [calendarData, setCalendarData] = useState({});
+  const [meditationLogs, setMeditationLogs] = useState([]);
   const toKey = (d) => new Date(d).toLocaleDateString("en-CA");
 
   useEffect(() => {
@@ -2768,7 +3149,33 @@ const FitnessCalendar = ({ token, refreshKey }) => {
       .then(res => res.json())
       .then(data => setFoodLogs(data || []))
       .catch(err => console.error("Calendar fetch error:", err));
+    // Fetch meditation logs
+    fetch(`${API_URL}/fitness/meditation/month`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => res.json())
+      .then(data => setMeditationLogs(data || []));
   }, [token, refreshKey]);
+  useEffect(() => {
+    if (!liveMeditation) return;
+
+    setMeditationLogs(prev => [
+      ...prev,
+      {
+        ...liveMeditation,
+        date: new Date().toISOString()
+      }
+    ]);
+  }, [liveMeditation]);
+
+  const getWorkoutDetails = (dayKey) =>
+    workouts.filter(w => toKey(w.date) === dayKey);
+
+  const getFoodDetails = (dayKey) =>
+    foodLogs.filter(f => toKey(f.date) === dayKey);
+
+  const getMeditationDetails = (dayKey) =>
+    meditationLogs.filter(m => toKey(m.date) === dayKey);
 
 
   // ✅ Group workouts by date (YYYY-MM-DD)
@@ -2786,6 +3193,11 @@ const FitnessCalendar = ({ token, refreshKey }) => {
     );
 
     acc[key] = (acc[key] || 0) + total;
+    return acc;
+  }, {});
+  const groupedMeditation = meditationLogs.reduce((acc, m) => {
+    const key = toKey(m.date);
+    acc[key] = (acc[key] || 0) + Number(m.duration || 0);
     return acc;
   }, {});
 
@@ -2821,6 +3233,16 @@ const FitnessCalendar = ({ token, refreshKey }) => {
     });
   }
 
+  const barData =
+    view !== "month"
+      ? weeks[view]?.map(d => ({
+        date: d.date.toLocaleDateString("en-US", { weekday: "short" }),
+        workout: d.minutes || 0,
+        nutrition: groupedCalories[d.key] || 0,
+        meditation: groupedMeditation[d.key] || 0
+      }))
+      : [];
+
 
   // weekly totals
   const weeklyTotals = Object.keys(weeks).reduce((acc, w) => {
@@ -2830,6 +3252,13 @@ const FitnessCalendar = ({ token, refreshKey }) => {
   const weeklyCalorieTotals = Object.keys(weeks).reduce((acc, w) => {
     acc[w] = weeks[w].reduce(
       (sum, d) => sum + (groupedCalories[d.key] || 0),
+      0
+    );
+    return acc;
+  }, {});
+  const weeklyMeditationTotals = Object.keys(weeks).reduce((acc, w) => {
+    acc[w] = weeks[w].reduce(
+      (sum, d) => sum + (groupedMeditation[d.key] || 0),
       0
     );
     return acc;
@@ -2885,11 +3314,70 @@ const FitnessCalendar = ({ token, refreshKey }) => {
                       {d.date.toLocaleDateString()}
                       {isToday && " 🟢"}
                     </td>
-                    <td className="p-2 text-center">{d.minutes}</td>
                     <td className="p-2 text-center">
-                      {groupedCalories[d.key] || 0}
+                      <div className="relative group inline-block">
+                        {d.minutes || "—"}
+
+                        {d.minutes > 0 && (
+                          <div className="hidden group-hover:block absolute z-50 bg-white shadow-lg border rounded p-2 text-xs text-left w-40">
+                            <p className="font-semibold mb-1">🏋️ Workouts</p>
+                            {getWorkoutDetails(d.key).map((w, i) => (
+                              <p key={i}>
+                                {w.activity} – {w.duration} min
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </td>
-                    <td className="p-2 text-center text-gray-400">—</td>
+                    <td className="p-2 text-center">
+                      <div className="relative group inline-block">
+                        {groupedCalories[d.key] || "—"}
+
+                        {groupedCalories[d.key] > 0 && (
+                          <div className="hidden group-hover:block absolute z-50 bg-white shadow-lg border rounded p-2 text-xs text-left w-44">
+                            <p className="font-semibold mb-1">🍎 Nutrition</p>
+                            {getFoodDetails(d.key).map((log, i) =>
+                              log.items.map((item, j) => (
+                                <p key={`${i}-${j}`}>
+                                  {item.name} – {item.calories} kcal
+                                </p>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-2 text-center">
+                      <div className="relative group inline-block">
+                        {groupedMeditation[d.key] || "—"}
+
+                        {groupedMeditation[d.key] > 0 && (
+                          <div
+                            className="
+                            hidden group-hover:block
+                            absolute z-50
+                            bg-white shadow-lg border
+                            rounded p-2
+                            text-xs text-left
+                            w-44
+                            left-1/2 -translate-x-1/2
+                          "
+                          >
+                            <p className="font-semibold mb-1">🧘 Meditation</p>
+
+                            {meditationLogs
+                              .filter(m => toKey(m.date) === d.key)
+                              .map((m, i) => (
+                                <p key={i} className="font-medium">
+                                  {m.type} – {m.duration} min
+                                </p>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+
                   </tr>
                 );
               })}
@@ -2903,6 +3391,41 @@ const FitnessCalendar = ({ token, refreshKey }) => {
           <div className="mt-2 text-right text-sm font-semibold">
             Calories this week: {weeklyCalorieTotals[view] || 0} kcal
           </div>
+          <div className="mt-2 text-right text-sm font-semibold">
+            Meditation this week: {weeklyMeditationTotals[view] || 0} mins
+          </div>
+          {/* 📊 WEEKLY ACTIVITY BAR GRAPH */}
+          {view !== "month" && barData?.length > 0 && (
+            <div className="mt-10">
+              <h4 className="text-lg font-bold mb-4">
+                📊 Weekly Activity Overview
+              </h4>
+
+              <div className="w-full h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={barData}
+                    margin={{ top: 20, right: 30, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+
+                    {/* 🏋️ Workout */}
+                    <Bar dataKey="workout" fill="#34D399" name="Workout (mins)" />
+
+                    {/* 🍎 Nutrition */}
+                    <Bar dataKey="nutrition" fill="#60A5FA" name="Nutrition (kcal)" />
+
+                    {/* 🧘 Meditation */}
+                    <Bar dataKey="meditation" fill="#A78BFA" name="Meditation (mins)" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
