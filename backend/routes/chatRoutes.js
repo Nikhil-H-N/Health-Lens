@@ -25,6 +25,21 @@ router.post("/", auth, async (req, res) => {
 
   res.json({ response: reply });
 });
+router.get("/history", auth, async (req, res) => {
+  try {
+    const chat = await ChatHistory.findOne(
+      { userId: req.user.id },
+      { messages: { $slice: -50 } } // ✅ ONLY last 50 from DB
+    );
+
+    res.json({
+      messages: chat?.messages || []
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch chat history" });
+  }
+});
 
 
 module.exports = router;

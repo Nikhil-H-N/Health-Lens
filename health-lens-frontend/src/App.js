@@ -10,6 +10,7 @@ import {
   Legend,
   ResponsiveContainer
 } from "recharts";
+import ReactMarkdown from "react-markdown";
 
 
 // ================= FOOD MASTER DATA =================
@@ -117,7 +118,7 @@ const HealthLensApp = () => {
       const [reportsRes, diseasesRes, vaccinesRes, goalRes, clinicsRes, chatRes] =
         await Promise.all([
           fetch(`${API_URL}/reports`, { headers }),
-          fetch(`${API_URL}/disease`, { headers }),        // ✅ FIXED
+          fetch(`${API_URL}/diseases`, { headers }),        // ✅ FIXED
           fetch(`${API_URL}/vaccination`, { headers }),    // ✅ FIXED
           fetch(`${API_URL}/fitness/goal`, { headers }),   // ✅ OK
           fetch(`${API_URL}/clinics`, { headers }),        // ✅ FIXED
@@ -222,7 +223,7 @@ const HealthLensApp = () => {
 
         {/* Page Content */}
         <main className="p-6">
-          {currentPage === 'dashboard' && <Dashboard reports={reports} diseases={diseases} vaccinations={vaccinations} fitnessGoal={fitnessGoal} />}
+          {currentPage === 'dashboard' && <Dashboard reports={reports} diseases={diseases} vaccinations={vaccinations} setVaccinations={setVaccinations} fitnessGoal={fitnessGoal} />}
           {currentPage === 'reports' && <Reports reports={reports} setReports={setReports} token={token} />}
           {currentPage === 'diseases' && <Diseases diseases={diseases} setDiseases={setDiseases} token={token} />}
           {currentPage === 'vaccinations' && <Vaccinations vaccinations={vaccinations} setVaccinations={setVaccinations} token={token} />}
@@ -388,7 +389,84 @@ const AuthPage = ({ setToken, setUser }) => {
 };
 
 // Dashboard Component
-const Dashboard = ({ reports, diseases, vaccinations, fitnessGoal }) => {
+const Dashboard = ({ reports, diseases, vaccinations, setVaccinations, fitnessGoal }) => {
+  const [updatingId, setUpdatingId] = useState(null);
+
+  const handleRenew = async (vacId) => {
+    try {
+      // 🔹 mark as updating
+      setUpdatingId(vacId);
+
+      const res = await fetch(
+        `${API_URL}/vaccination/${vacId}/renew`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`
+          }
+        }
+      );
+
+      if (!res.ok) {
+        setUpdatingId(null);
+        return;
+      }
+
+      const updatedVaccination = await res.json();
+
+      // ⏳ wait 5 seconds before removing from Upcoming
+      setTimeout(() => {
+        setVaccinations(prev =>
+          prev.map(v =>
+            v._id === updatedVaccination._id ? updatedVaccination : v
+          )
+        );
+
+        // 🔹 clear updating state
+        setUpdatingId(null);
+      }, 5000);
+    } catch (err) {
+      console.error("Renew failed", err);
+      setUpdatingId(null);
+    }
+  };
+
+  // ✅ STEP 2A: filter only vaccinations with renewal date
+  const upcomingVaccinations = vaccinations
+    .filter(
+      v =>
+        v.nextDueDate &&            // has renewal date
+        v.renewalCompleted !== true // ❌ not renewed
+    )
+    .sort(
+      (a, b) =>
+        new Date(a.nextDueDate) - new Date(b.nextDueDate)
+    );
+  const isOverdue = (vac) => {
+    if (!vac.nextDueDate) return false;
+    if (vac.renewalCompleted) return false;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const dueDate = new Date(vac.nextDueDate);
+    dueDate.setHours(0, 0, 0, 0);
+
+    return dueDate < today;
+  };
+  const canRenew = (vac) => {
+    if (!vac.nextDueDate) return false;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const dueDate = new Date(vac.nextDueDate);
+    dueDate.setHours(0, 0, 0, 0);
+
+    // ✅ allow on or after renewal date
+    return today >= dueDate;
+  };
+
   return (
     <div className="space-y-6">
       <h2 className="text-3xl font-bold text-gray-800">Dashboard</h2>
@@ -423,16 +501,57 @@ const Dashboard = ({ reports, diseases, vaccinations, fitnessGoal }) => {
             <Calendar className="w-6 h-6 text-green-600" />
             Upcoming Vaccinations
           </h3>
-          {vaccinations.slice(0, 5).map((vac, idx) => (
-            <div key={idx} className="flex justify-between items-center py-3 border-b last:border-b-0">
-              <div>
-                <p className="font-semibold">{vac.name}</p>
-                <p className="text-sm text-gray-500">{new Date(vac.renewalDate || vac.date).toLocaleDateString()}</p>
+          {upcomingVaccinations.length === 0 ? (
+            <p className="text-gray-500 text-center py-4">
+              No upcoming vaccinations
+            </p>
+          ) : (
+            upcomingVaccinations.map((vac, idx) => (
+              <div
+                key={vac._id}
+                className="flex justify-between items-center py-3 border-b last:border-b-0"
+              >
+                <div>
+                  <p className="font-semibold">
+                    {idx + 1}. {vac.vaccineName}
+                  </p>
+
+                  <p
+                    className={`text-sm ${isOverdue(vac) ? "text-red-600 font-semibold" : "text-gray-500"
+                      }`}
+                  >
+                    {new Date(vac.nextDueDate).toLocaleDateString()}
+                    {isOverdue(vac) && " (Overdue)"}
+                  </p>
+                </div>
+
+                {/* ✅ RENEW CHECKBOX */}
+                {updatingId === vac._id ? (
+                  <span className="text-sm text-blue-600 font-medium">
+                    Updating…
+                  </span>
+                ) : (
+                  <input
+                    type="checkbox"
+                    checked={false}
+                    disabled={!canRenew(vac)}
+                    onChange={() => handleRenew(vac._id)}
+                    className={`w-5 h-5 accent-green-600 ${canRenew(vac)
+                        ? "cursor-pointer"
+                        : "cursor-not-allowed opacity-50"
+                      }`}
+                    title={
+                      canRenew(vac)
+                        ? "Mark as renewed"
+                        : "You can mark this only on or after the renewal date"
+                    }
+                  />
+                )}
+
               </div>
-              <Syringe className="w-5 h-5 text-gray-400" />
-            </div>
-          ))}
-          {vaccinations.length === 0 && <p className="text-gray-500 text-center py-4">No vaccinations recorded</p>}
+
+            ))
+          )}
         </div>
       </div>
     </div>
@@ -507,22 +626,25 @@ const Reports = ({ reports, setReports, token }) => {
       console.error('Error uploading report:', err);
     }
   };
-
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this report?')) return;
-    try {
-      const res = await fetch(`${API_URL}/reports/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+    const confirmDelete = window.confirm(
+      "Are you sure you want to delete this report?"
+    );
 
-      if (res.ok) {
-        setReports(reports.filter(r => r._id !== id));
+    if (!confirmDelete) return;
+
+    const res = await fetch(`${API_URL}/reports/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`
       }
-    } catch (err) {
-      console.error('Error deleting report:', err);
+    });
+
+    if (res.ok) {
+      setReports(prev => prev.filter(r => r._id !== id));
     }
   };
+
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
@@ -971,6 +1093,8 @@ const Diseases = ({ diseases, setDiseases, token }) => {
   const [availableDiseases, setAvailableDiseases] = useState([]);
   const [selectedDisease, setSelectedDisease] = useState("");
   const [diagnosedDate, setDiagnosedDate] = useState("");
+  const [showResolveModal, setShowResolveModal] = useState(false);
+  const [selectedDiseaseId, setSelectedDiseaseId] = useState(null);
 
 
   const fetchDiseasesByType = async (type) => {
@@ -1029,24 +1153,23 @@ const Diseases = ({ diseases, setDiseases, token }) => {
     const data = await res.json();
     setDiseases(data);
   };
-
   const resolveDisease = async (id) => {
-    const confirm = window.confirm("Mark this disease as resolved?");
-    if (!confirm) return;
+    try {
+      const res = await fetch(`${API_URL}/diseases/resolve/${id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
 
-    const res = await fetch(`/api/diseases/${id}`, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${token}`
+      if (res.ok) {
+        // remove from UI
+        setDiseases(prev => prev.filter(d => d._id !== id));
       }
-    });
-
-    if (res.ok) {
-      // ✅ remove from UI immediately
-      setDiseases(prev => prev.filter(d => d._id !== id));
+    } catch (err) {
+      console.error("Failed to resolve disease", err);
     }
   };
-
 
 
   useEffect(() => {
@@ -1128,6 +1251,15 @@ const Diseases = ({ diseases, setDiseases, token }) => {
             <p className="text-sm text-gray-500">
               Diagnosed: {new Date(disease.diagnosedDate).toLocaleDateString()}
             </p>
+            <button
+              onClick={() => {
+                setSelectedDiseaseId(disease._id);
+                setShowResolveModal(true);
+              }}
+              className="mt-4 text-sm text-red-600 hover:underline"
+            >
+              Resolve Disease
+            </button>
 
             {/* Acute / Chronic badge */}
             <span
@@ -1139,14 +1271,6 @@ const Diseases = ({ diseases, setDiseases, token }) => {
               {disease.diseaseType}
             </span>
 
-            {/* ✅ RESOLVE BUTTON — PUT HERE */}
-            <button
-              onClick={() => resolveDisease(disease._id)}
-              className="mt-4 text-sm text-red-600 hover:underline"
-            >
-              Resolve Disease
-            </button>
-
           </div>
         ))}
 
@@ -1156,6 +1280,43 @@ const Diseases = ({ diseases, setDiseases, token }) => {
           </div>
         )}
       </div>
+      {showResolveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <h2 className="text-lg font-semibold text-gray-800 mb-3">
+              Confirm Resolution
+            </h2>
+
+            <p className="text-sm text-gray-600 mb-6">
+              Are you sure you want to mark this disease as resolved?
+              This action will update your daily routine.
+            </p>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowResolveModal(false);
+                  setSelectedDiseaseId(null);
+                }}
+                className="px-4 py-2 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={() => {
+                  resolveDisease(selectedDiseaseId);
+                  setShowResolveModal(false);
+                  setSelectedDiseaseId(null);
+                }}
+                className="px-4 py-2 text-sm rounded bg-red-600 text-white hover:bg-red-700"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1163,33 +1324,88 @@ const Diseases = ({ diseases, setDiseases, token }) => {
 // Vaccinations Component
 const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
   const [showForm, setShowForm] = useState(false);
+  const [file, setFile] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [selectedVaccinationId, setSelectedVaccinationId] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const [formData, setFormData] = useState({
     name: '',
     date: new Date().toISOString().split('T')[0],
-    renewalDate: ''
+    renewalDate: '',
+    notes: ''
   });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     try {
-      const res = await fetch(`${API_URL}/vaccinations/add`, {
-        method: 'POST',
+      const data = new FormData();
+
+      // text fields
+      data.append("name", formData.name);
+      data.append("date", formData.date);
+      data.append("renewalDate", formData.renewalDate);
+      data.append("notes", formData.notes);
+
+      // optional file
+      if (file) {
+        data.append("report", file); // MUST match upload.single("report")
+      }
+
+      const res = await fetch(`${API_URL}/vaccination/add`, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}` // ✅ ONLY auth header
         },
-        body: JSON.stringify(formData)
+        body: data
       });
 
       if (res.ok) {
         const newVac = await res.json();
         setVaccinations([...vaccinations, newVac]);
         setShowForm(false);
-        setFormData({ name: '', date: new Date().toISOString().split('T')[0], renewalDate: '' });
+
+        // reset form
+        setFormData({
+          name: "",
+          date: new Date().toISOString().split("T")[0],
+          renewalDate: "",
+          notes: ""
+        });
+        setFile(null);
       }
     } catch (err) {
-      console.error('Error adding vaccination:', err);
+      console.error("Error adding vaccination:", err);
+    }
+  };
+  const handleDelete = async (id) => {
+    if (!id) return;
+
+    setIsDeleting(true); // 🔒 lock UI
+
+    try {
+      const res = await fetch(`${API_URL}/vaccination/${id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        // ✅ remove from frontend immediately
+        setVaccinations(prev =>
+          prev.filter(v => v._id !== id)
+        );
+
+        // ✅ close modal
+        setShowDeleteModal(false);
+        setSelectedVaccinationId(null);
+      }
+    } catch (err) {
+      console.error("Delete failed", err);
+    } finally {
+      setIsDeleting(false); // 🔓 unlock UI
     }
   };
 
@@ -1207,7 +1423,7 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
       </div>
 
       {showForm && (
-        <div className="bg-white rounded-xl shadow-sm p-6">
+        <div className="relative bg-white rounded-xl shadow-sm p-6">
           <h3 className="text-xl font-bold mb-4">New Vaccination</h3>
           <form onSubmit={handleSubmit} className="space-y-4">
             <input
@@ -1218,12 +1434,28 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
               className="w-full px-4 py-3 border border-gray-300 rounded-lg"
               required
             />
+            <div>
+              <label className="block text-sm text-gray-600 mb-2">
+                Notes (Optional)
+              </label>
+
+              <textarea
+                rows={3}
+                placeholder="What is this vaccination for?"
+                value={formData.notes}
+                onChange={(e) =>
+                  setFormData({ ...formData, notes: e.target.value })
+                }
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none"
+              />
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-600 mb-2">Date Administered</label>
                 <input
                   type="date"
                   value={formData.date}
+                  max={new Date().toISOString().split("T")[0]}   // ✅ BLOCK FUTURE DATES
                   onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg"
                   required
@@ -1234,9 +1466,28 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
                 <input
                   type="date"
                   value={formData.renewalDate}
-                  onChange={(e) => setFormData({ ...formData, renewalDate: e.target.value })}
+                  min={new Date().toISOString().split("T")[0]}   // ✅ BLOCK PAST DATES
+                  onChange={(e) =>
+                    setFormData({ ...formData, renewalDate: e.target.value })
+                  }
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg"
                 />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-2">
+                  Vaccination Report (Optional)
+                </label>
+
+                <input
+                  type="file"
+                  accept=".pdf,image/*"
+                  onChange={(e) => setFile(e.target.files[0])}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+
+                <p className="text-xs text-gray-500 mt-1">
+                  Upload PDF or image (optional)
+                </p>
               </div>
             </div>
             <div className="flex gap-3">
@@ -1253,49 +1504,258 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {vaccinations.map(vac => (
-          <div key={vac._id} className="bg-white rounded-xl shadow-sm p-6">
-            <Syringe className="w-10 h-10 text-green-500 mb-3" />
-            <h3 className="font-bold text-lg mb-2">{vac.name}</h3>
-            <p className="text-sm text-gray-500">Date: {new Date(vac.date).toLocaleDateString()}</p>
-            {vac.renewalDate && (
-              <p className="text-sm text-gray-600 mt-1">Renewal: {new Date(vac.renewalDate).toLocaleDateString()}</p>
+          <div
+            key={vac._id}
+            className="relative bg-white rounded-xl shadow-sm p-6 flex flex-col justify-between"
+          >
+            {/* Top Section */}
+            <div>
+              <Syringe className="w-10 h-10 text-green-500 mb-3" />
+              <button
+                onClick={() => {
+                  setSelectedVaccinationId(vac._id);
+                  setShowDeleteModal(true);
+                }}
+                className="absolute top-4 right-4 text-red-500 hover:text-red-700"
+                title="Delete vaccination"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
+              <h3 className="font-bold text-lg">{vac.vaccineName}</h3>
+
+              <p className="text-sm text-gray-500">
+                Date: {new Date(vac.dateAdministered).toLocaleDateString()}
+              </p>
+              {vac.notes && (
+                <p className="mt-2 text-sm text-gray-700 italic">
+                  📝 {vac.notes}
+                </p>
+              )}
+
+              {vac.nextDueDate && (
+                <p className="text-sm mt-1">
+                  <span
+                    className={`${!vac.renewalCompleted &&
+                      new Date(vac.nextDueDate) < new Date()
+                      ? "text-red-600 font-semibold"
+                      : "text-gray-600"
+                      }`}
+                  >
+                    Renewal: {new Date(vac.nextDueDate).toLocaleDateString()}
+                  </span>
+
+                  {!vac.renewalCompleted &&
+                    new Date(vac.nextDueDate) < new Date() && (
+                      <span className="ml-2 text-red-600 font-semibold">
+                        (Overdue)
+                      </span>
+                    )}
+
+                  {vac.renewalCompleted && (
+                    <span className="ml-2 text-green-600 font-semibold">
+                      ✓ Renewed
+                    </span>
+                  )}
+                </p>
+              )}
+
+            </div>
+
+            {/* Bottom Section – Report Button */}
+            {vac.reportFile && (
+              <div className="mt-4 pt-3 border-t">
+                <a
+                  href={`http://localhost:5000/${vac.reportFile}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="
+          inline-flex items-center gap-2
+          text-sm font-medium
+          text-blue-600
+          hover:text-blue-800
+        "
+                >
+                  📄 View Report
+                </a>
+              </div>
             )}
           </div>
         ))}
       </div>
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-6">
+            <h3 className="text-lg font-bold text-gray-800 mb-3">
+              Delete Vaccination
+            </h3>
+
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete this vaccination?
+              This action cannot be undone.
+            </p>
+
+            <div className="flex justify-end gap-3">
+              <button
+                disabled={isDeleting}
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setSelectedVaccinationId(null);
+                }}
+                className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                disabled={isDeleting}
+                onClick={() => handleDelete(selectedVaccinationId)}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {isDeleting ? "Deleting..." : "Delete"}
+              </button>
+
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
 
-// Fitness Goals Component
-
 
 // Daily Routine Component
 const DailyRoutine = ({ diseases, token }) => {
-  const [routine, setRoutine] = useState([]);
+
   const [loading, setLoading] = useState(true);
+  const [diseaseTasks, setDiseaseTasks] = useState([]);
+  const [isGeneralRoutine, setIsGeneralRoutine] = useState(false);
+  const [routineTitle, setRoutineTitle] = useState("General Healthy Daily Routine");
 
   useEffect(() => {
     fetchRoutine();
-  }, [diseases]);
+  }, []);
 
   const fetchRoutine = async () => {
     try {
-      const res = await fetch(`${API_URL}/routine`, {
+      const res = await fetch(`${API_URL}/routine/daily`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`
         }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setRoutine(data);
+
+      if (!res.ok) return;
+
+      const data = await res.json();
+
+      // 🟢 General routine ALWAYS visible
+      setIsGeneralRoutine(true);
+
+      // 🧠 Disease-specific tasks
+      if (data.hasDiseases && data.tasks.length > 0) {
+        const mappedTasks = data.tasks.map(task => ({
+          ...task,
+          completed: data.completedTaskIds.includes(task.id)
+        }));
+
+        setDiseaseTasks(mappedTasks);
+
+        const diseaseNames = [
+          ...new Set(mappedTasks.map(t => t.id.split("_")[0]))
+        ];
+
+        if (diseaseNames.length === 1) {
+          const name = diseaseNames[0];
+          setRoutineTitle(
+            `Daily Routine for ${name.charAt(0).toUpperCase() + name.slice(1)}`
+          );
+        } else {
+          const formatted = diseaseNames
+            .map(n => n.charAt(0).toUpperCase() + n.slice(1))
+            .join(" & ");
+
+          setRoutineTitle(`Daily Routine for ${formatted}`);
+        }
+      } else {
+        // No diseases
+        setDiseaseTasks([]);
+        setRoutineTitle("General Healthy Daily Routine");
       }
+
     } catch (err) {
-      console.error('Error fetching routine:', err);
+      console.error("Error fetching routine:", err);
     } finally {
       setLoading(false);
     }
   };
+
+
+  const resolveDisease = async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/diseases/resolve/${id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        // 🔁 Re-generate routine
+        fetchRoutine();
+      }
+    } catch (err) {
+      console.error("Failed to resolve disease", err);
+    }
+  };
+  const toggleTask = async (taskId) => {
+    // optimistic UI update
+    setDiseaseTasks(prev =>
+      prev.map(task =>
+        task.id === taskId
+          ? { ...task, completed: !task.completed }
+          : task
+      )
+    );
+
+    try {
+      await fetch(`${API_URL}/routine/complete`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ taskId })
+      });
+    } catch (err) {
+      // rollback on failure
+      setDiseaseTasks(prev =>
+        prev.map(task =>
+          task.id === taskId
+            ? { ...task, completed: !task.completed }
+            : task
+        )
+      );
+    }
+  };
+
+  // 🔢 Routine progress calculation
+  const totalTasks = diseaseTasks.length;
+  const completedTasks = diseaseTasks.filter(t => t.completed).length;
+
+  const completionPercent = totalTasks
+    ? Math.round((completedTasks / totalTasks) * 100)
+    : 0;
+
+  // 😊 Mood emoji based on completion
+  const getRoutineEmoji = () => {
+    if (completionPercent === 100) return "😁";
+    if (completionPercent >= 80) return "😄";
+    if (completionPercent >= 60) return "🙂";
+    if (completionPercent >= 40) return "😐";
+    if (completionPercent >= 20) return "😕";
+    return "😞";
+  };
+
 
   if (loading) {
     return <div className="text-center py-8">Loading routine...</div>;
@@ -1303,41 +1763,94 @@ const DailyRoutine = ({ diseases, token }) => {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-3xl font-bold text-gray-800">📅 Daily Routine</h2>
+      <h2 className="text-2xl font-bold mb-6 text-green-700">
+        📅 General Healthy Daily Routine
+      </h2>
 
-      {routine.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-xl shadow-sm">
-          <div className="text-6xl mb-4">📋</div>
-          <h3 className="text-xl font-semibold text-gray-700 mb-2">No Routine Generated</h3>
-          <p className="text-gray-500">Add diseases to generate personalized daily tasks</p>
+
+      {/* 🟢 General Healthy Routine */}
+      {isGeneralRoutine && (
+        <div className="py-12 bg-white rounded-xl shadow-sm px-6">
+          <ul className="space-y-3 text-gray-600 text-sm list-disc list-inside">
+            <li>💧 Drink at least <span className="font-semibold">2–3 liters of water</span> daily</li>
+            <li>🥗 Eat balanced meals with fruits, vegetables, and proteins</li>
+            <li>🚶‍♂️ Stay active with at least <span className="font-semibold">30 minutes of exercise</span></li>
+            <li>😴 Maintain <span className="font-semibold">7–8 hours of quality sleep</span></li>
+            <li>🧘‍♀️ Take short breaks to stretch or relax during the day</li>
+            <li>🚫 Reduce junk food, sugar, and excessive screen time</li>
+            <li>🌞 Spend some time outdoors for fresh air and sunlight</li>
+            <li>🧠 Practice stress management using meditation or deep breathing</li>
+          </ul>
         </div>
-      ) : (
-        <div className="grid gap-4">
-          {routine.map((task, index) => (
-            <div key={index} className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Calendar className="w-6 h-6 text-blue-600" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-lg text-gray-800">{task.task}</h3>
-                  {task.priority === "high" && (
-                    <span className="text-xs text-red-600 font-semibold">
-                      Chronic Care
-                    </span>
-                  )}
+      )}
+      {diseaseTasks.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-2xl font-bold text-blue-700 mt-8">
+            ➕ Additional routine for{" "}
+            {routineTitle.replace(/^Daily Routine for\s*/i, "")}
+          </h3>
 
-                  <p className="text-gray-600 text-sm mt-1">{task.time}</p>
-                  {task.notes && (
-                    <p className="text-gray-500 text-sm mt-2 italic">{task.notes}</p>
-                  )}
-                </div>
-                <button className="text-green-500 hover:text-green-700">
-                  <CheckCircle className="w-6 h-6" />
-                </button>
+
+          {diseaseTasks.map(task => (
+            <div
+              key={task.id}
+              className="bg-white rounded-xl shadow-sm p-6 flex justify-between items-center"
+            >
+              <div>
+                <h3 className="font-semibold text-lg">{task.label}</h3>
+                {task.target && (
+                  <p className="text-sm text-gray-500">
+                    Target: {task.target} {task.unit}
+                  </p>
+                )}
               </div>
+
+              <input
+                type="checkbox"
+                checked={task.completed}
+                onChange={() => toggleTask(task.id)}
+                className="w-5 h-5 accent-green-600"
+              />
             </div>
           ))}
+          {/* 😊 Progress for disease routines */}
+          {diseaseTasks.length > 0 && (
+            <div className="flex items-center gap-3 mt-6">
+              <div className="flex gap-1 text-lg">
+                <span>😞</span>
+                <span>😕</span>
+                <span>😐</span>
+                <span>🙂</span>
+                <span>😁</span>
+              </div>
+
+              <div className="relative w-40 h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className="absolute top-0 left-0 h-2 bg-green-500 transition-all duration-300"
+                  style={{ width: `${completionPercent}%` }}
+                />
+              </div>
+
+              <span className="text-xl">
+                {getRoutineEmoji()}
+              </span>
+            </div>
+          )}
+
+        </div>
+      )}
+
+
+      {/* ⚪ No Routine */}
+      {!isGeneralRoutine && diseaseTasks.length === 0 && (
+        <div className="text-center py-12 bg-white rounded-xl shadow-sm">
+          <div className="text-6xl mb-4">📋</div>
+          <h3 className="text-xl font-semibold text-gray-700 mb-2">
+            No Routine Generated
+          </h3>
+          <p className="text-gray-500">
+            Add diseases to generate personalized daily tasks
+          </p>
         </div>
       )}
     </div>
@@ -1380,6 +1893,10 @@ const NearbyClinics = () => {
 const HealthChat = ({ chatHistory, setChatHistory, token }) => {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [lastHistory, setLastHistory] = useState([]);
+  const chatEndRef = useRef(null);
+  const historyEndRef = useRef(null);
 
   const sendMessage = async () => {
     if (!message.trim()) return;
@@ -1409,21 +1926,118 @@ const HealthChat = ({ chatHistory, setChatHistory, token }) => {
       setLoading(false);
     }
   };
+  const fetchChatHistory = async () => {
+    try {
+      const res = await fetch(`${API_URL}/chat/history`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      const data = await res.json();
+      setLastHistory(data.messages || []);
+    } catch (err) {
+      console.error("Failed to fetch chat history", err);
+    }
+  };
+  const renderBotMessage = (text) => {
+    if (!text) return null;
+
+    return text
+      .split("\n")
+      .filter(line => line.trim() !== "")
+      .map((line, i) => {
+        // 🟢 Section headings
+        if (
+          /^\d+\.\s*\*\*/.test(line) ||
+          /^\*\*.*\*\*:?$/.test(line)
+        ) {
+          return (
+            <p key={i} className="font-bold mt-3">
+              {line.replace(/\*\*/g, "").replace(/^\d+\.\s*/, "")}
+            </p>
+          );
+        }
+
+        // 🔵 Bullet points
+        if (line.startsWith("-") || line.startsWith("•")) {
+          return (
+            <li key={i} className="ml-5 list-disc">
+              {line.replace(/^[-•]\s*/, "")}
+            </li>
+          );
+        }
+
+        // ⚪ Normal text
+        return <p key={i}>{line}</p>;
+      });
+  };
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatHistory, loading]);
+  useEffect(() => {
+    if (showHistoryModal && lastHistory.length > 0) {
+      historyEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [showHistoryModal, lastHistory]);
+
 
   return (
     <div className="space-y-6">
-      <h2 className="text-3xl font-bold text-gray-800">💬 Health Chat</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-3xl font-bold">💬 Health Chat</h1>
+
+        <button
+          onClick={() => {
+            setShowHistoryModal(true);
+            fetchChatHistory();
+          }}
+          className="text-sm bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+        >
+          View History
+        </button>
+      </div>
 
       <div className="bg-white rounded-xl shadow-sm p-6 h-96 overflow-y-auto">
-        {chatHistory.map((msg, idx) => (
-          <div key={idx} className={`mb-4 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
-            <div className={`inline-block p-3 rounded-lg ${msg.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-800'
-              }`}>
-              {msg.content}
+        {chatHistory.map((msg, idx) => {
+          const messageText =
+            typeof msg.content === "string"
+              ? msg.content
+              : typeof msg.text === "string"
+                ? msg.text
+                : "";
+
+          const isUser = msg.role === "user" || msg.sender === "user";
+
+          return (
+            <div
+              key={idx}
+              className={`mb-4 ${isUser ? "text-right" : "text-left"}`}
+            >
+              <div
+                className={`inline-block p-3 rounded-lg ${isUser
+                  ? "bg-blue-400 text-black"
+                  : "bg-gray-200 text-gray"
+                  }`}
+              >
+                {isUser ? (
+                  // ✅ User messages → plain text only
+                  <span>{messageText}</span>
+                ) : (
+                  // ✅ Bot messages → markdown (wrapped safely)
+                  <div className="prose prose-sm max-w-none">
+                    <div className="text-sm">
+                      {renderBotMessage(messageText)}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
-        {loading && <div className="text-center text-gray-500">Typing...</div>}
+          );
+        })}
+        {loading && <div className="text-center text-gray-500">Getting results...</div>}
+        {/* 👇 Auto-scroll target */}
+        <div ref={chatEndRef} />
       </div>
 
       <div className="flex gap-2">
@@ -1443,6 +2057,43 @@ const HealthChat = ({ chatHistory, setChatHistory, token }) => {
           Send
         </button>
       </div>
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+          <div className="bg-white w-full max-w-lg rounded-xl shadow-xl p-6">
+
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold">🕘 Last 50 Messages</h3>
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✖
+              </button>
+            </div>
+
+            <div className="max-h-96 overflow-y-auto space-y-3">
+              {lastHistory.length === 0 && (
+                <p className="text-gray-500 text-sm">No chat history</p>
+              )}
+
+              {lastHistory.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`p-3 rounded-lg text-sm ${msg.sender === "user"
+                    ? "bg-blue-100 text-right"
+                    : "bg-gray-100 text-left"
+                    }`}
+                >
+                  {msg.sender === "bot"
+                    ? renderBotMessage(msg.text)
+                    : <span>{msg.text}</span>}
+                </div>
+              ))}
+              <div ref={historyEndRef} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const auth = require("../middleware/authMiddleware");
-
+const DailyRoutineLog = require("../models/DailyRoutineLog");
 const Disease = require("../models/Disease");
 const UserDisease = require("../models/UserDisease");
 
@@ -81,25 +81,46 @@ router.get("/", auth, async (req, res) => {
     res.status(500).json({ error: "Failed to fetch user diseases" });
   }
 });
-// ❌ RESOLVE (REMOVE) USER DISEASE
-router.delete("/:id", auth, async (req, res) => {
+// ✅ Resolve (delete) a tracked disease
+router.delete("/resolve/:id", auth, async (req, res) => {
   try {
-    const disease = await UserDisease.findOneAndDelete({
+    const disease = await UserDisease.findOne({
       _id: req.params.id,
       userId: req.user.id
-    });
+    }).populate("diseaseId");
 
     if (!disease) {
       return res.status(404).json({ error: "Disease not found" });
     }
 
-    res.json({ message: "Disease resolved successfully" });
+    const diseaseName = disease.diseaseId.name.toLowerCase();
+
+    // 1️⃣ Remove the disease
+    await disease.deleteOne();
+
+    // 2️⃣ Remove ONLY this disease's tasks from today's routine log
+    const today = new Date().toISOString().split("T")[0];
+
+    const log = await DailyRoutineLog.findOne({
+      userId: req.user.id,
+      date: today
+    });
+
+    if (log) {
+      log.completedTaskIds = log.completedTaskIds.filter(
+        taskId => !taskId.startsWith(`${diseaseName}_`)
+      );
+
+      await log.save();
+    }
+
+    res.json({ message: "Disease resolved and routine updated" });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to resolve disease" });
   }
 });
-
 
 
 module.exports = router;

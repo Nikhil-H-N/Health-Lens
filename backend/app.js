@@ -11,6 +11,7 @@ connectDB();
 // ✅ Middleware
 app.use(cors());
 app.use(express.json());
+app.use("/uploads", express.static("uploads"));
 
 // ✅ Import Routes
 app.use("/api/auth", require("./routes/authRoutes"));
