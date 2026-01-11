@@ -179,7 +179,6 @@ router.post("/extract", auth, upload.single("image"), async (req, res) => {
       analysisResult = parseExtractedText(cleanedText);
     }
 
-
     // Convert object values to strings for frontend compatibility
     const simplifiedData = {};
     for (const [key, data] of Object.entries(analysisResult.extractedValues)) {
@@ -210,27 +209,6 @@ router.post("/extract", auth, upload.single("image"), async (req, res) => {
     res.status(500).json({ error: "Failed to extract text from file" });
   }
 });
-function cleanOcrText(text) {
-  return text
-    .split("\n")
-    .map(line => line.replace(/\s+/g, " ").trim()) // normalize spacing
-    .filter(line => {
-      if (!line) return false;
-
-      // ❌ remove ONLY paragraph explanations
-      if (
-        line.toLowerCase().includes("protein:") ||
-        line.toLowerCase().includes("glucose:") ||
-        line.toLowerCase().includes("ketone") ||
-        line.length > 300
-      ) {
-        return false;
-      }
-
-      return true; // ✅ KEEP TABLE ROWS
-    })
-    .join("\n");
-}
 
 // Enhanced helper function to parse medical report text and analyze health
 function parseExtractedText(text) {
@@ -240,10 +218,10 @@ function parseExtractedText(text) {
     normalParameters: [],
     abnormalParameters: []
   };
-
+  
   const medicalParameters = {
     Hemoglobin: {
-      pattern: /(?:HEMOGLOBIN|HB|HGB|Hemoglobin)\s*(?:\(.*?\))?\s*[:\s]+([0-9.]+)/i,
+      pattern: /Hemoglobin\s+([0-9.]+)/i,
       normalRange: { general: [12.0, 17.5] },
       unit: "g/dL",
       warnings: {
@@ -251,8 +229,9 @@ function parseExtractedText(text) {
         high: "High hemoglobin - May indicate dehydration or lung disease."
       }
     },
+
     RBC: {
-      pattern: /(?:RBC|RED BLOOD CELL|Red Blood Cell)\s*(?:\(.*?\))?\s*[:\s]+([0-9.]+)/i,
+      pattern: /RBC.*?\s([0-9.]+)/i,
       normalRange: { general: [4.2, 6.1] },
       unit: "million/mcL",
       warnings: {
@@ -260,8 +239,9 @@ function parseExtractedText(text) {
         high: "High RBC - May indicate dehydration or heart disease."
       }
     },
+
     WBC: {
-      pattern: /(?:WBC|WHITE BLOOD CELL|White Blood Cell|Total WBC Count)\s*(?:\(.*?\))?\s*[:\s]+([0-9,]+)/i,
+      pattern: /(?:WBC|TOTAL COUNT).*?\s([0-9.]+)/i,
       normalRange: { general: [4.0, 11.0] },
       unit: "thousand/mcL",
       warnings: {
@@ -269,8 +249,9 @@ function parseExtractedText(text) {
         high: "High WBC - May indicate infection or inflammation."
       }
     },
+
     Neutrophils: {
-      pattern: /(?:Segmented\s+)?Neutrophils\s+([0-9.]+)/i,
+      pattern: /Neutrophils.*?\s([0-9.]+)\s*%/i,
       normalRange: { general: [40, 75] },
       unit: "%",
       warnings: {
@@ -278,8 +259,9 @@ function parseExtractedText(text) {
         high: "High neutrophils - May indicate bacterial infection or stress."
       }
     },
+
     Lymphocytes: {
-      pattern: /Lymphocytes\s+([0-9.]+)/i,
+      pattern: /Lymphocytes.*?\s([0-9.]+)\s*%/i,
       normalRange: { general: [20, 45] },
       unit: "%",
       warnings: {
@@ -287,8 +269,9 @@ function parseExtractedText(text) {
         high: "High lymphocytes - May indicate viral infection or immune response."
       }
     },
+
     Monocytes: {
-      pattern: /Monocytes\s*[:\s]*([0-9.]+)\s*%?/i,
+      pattern: /Monocytes.*?\s([0-9.]+)\s*%/i,
       normalRange: { general: [2, 10] },
       unit: "%",
       warnings: {
@@ -296,8 +279,9 @@ function parseExtractedText(text) {
         high: "High monocytes - May indicate chronic infection or inflammation."
       }
     },
+
     Eosinophils: {
-      pattern: /Eosinophils\s*[:\s]*\.?\s*([0-9.]+)\s*%?/i,
+      pattern: /Eosinophils.*?\s([0-9.]+)\s*%/i,
       normalRange: { general: [1, 6] },
       unit: "%",
       warnings: {
@@ -305,49 +289,14 @@ function parseExtractedText(text) {
         high: "High eosinophils - May indicate allergies or parasitic infection."
       }
     },
+
     Platelets: {
-      pattern: /(?:PLATELET|PLT|Platelets)\s*[:\s]+([0-9,]+)/i,
+      pattern: /Platelet.*?\s([0-9,]+)/i,
       normalRange: { general: [150, 400] },
       unit: "thousand/mcL",
       warnings: {
         low: "Low platelets - Increased bleeding risk.",
         high: "High platelets - Increased clotting risk."
-      }
-    },
-    Glucose: {
-      pattern: /(?:GLUCOSE|SUGAR|FBS|Glucose|Blood Sugar)\s*[:\s]+([0-9.]+)/i,
-      normalRange: { general: [70, 100] },
-      unit: "mg/dL",
-      warnings: {
-        low: "Low blood sugar - Dizziness risk. Eat regularly.",
-        high: "High blood sugar - Diabetes risk. Reduce sugar, exercise."
-      }
-    },
-    Cholesterol: {
-      pattern: /(?:CHOLESTEROL|CHOL|Cholesterol)\s*[:\s]+([0-9.]+)/i,
-      normalRange: { general: [0, 200] },
-      unit: "mg/dL",
-      warnings: {
-        low: "Low cholesterol - Generally good.",
-        high: "High cholesterol - Heart disease risk. Diet changes needed."
-      }
-    },
-    SGPT: {
-      pattern: /(?:SGPT|ALT|Alanine)\s*[:\s]+([0-9.]+)/i,
-      normalRange: { general: [7, 56] },
-      unit: "U/L",
-      warnings: {
-        low: "Low SGPT - Not concerning.",
-        high: "High SGPT - Possible liver damage. Avoid alcohol."
-      }
-    },
-    Creatinine: {
-      pattern: /(?:CREATININE|CREAT|Creatinine)\s*[:\s]+([0-9.]+)/i,
-      normalRange: { general: [0.6, 1.3] },
-      unit: "mg/dL",
-      warnings: {
-        low: "Low creatinine - May indicate low muscle mass.",
-        high: "High creatinine - Reduced kidney function. Stay hydrated."
       }
     }
   };
@@ -361,21 +310,14 @@ function parseExtractedText(text) {
       let numericValue = parseFloat(rawValue.replace(/,/g, ''));
       // 🛡 OCR SAFETY: skip invalid values like "." or empty
       if (isNaN(numericValue)) {
-        return; // skip this parameter safely
+        continue; // skip this parameter safely
       }
       let displayValue = rawValue;
 
       // 🔧 OCR FIX for % values (e.g., 810 → 8.10)
-      if (
-        config.unit === "%" &&
-        numericValue > 100
-      ) {
-        displayValue =
-          rawValue.length === 3
-            ? `${rawValue[0]}.${rawValue.slice(1)}`
-            : `${rawValue[0]}.${rawValue.slice(1)}`;
-
-        numericValue = parseFloat(displayValue);
+      if (config.unit === "%" && numericValue > 100) {
+        numericValue = numericValue / 100;
+        displayValue = numericValue.toFixed(2);
       }
 
       data[paramName] = {
@@ -467,7 +409,7 @@ function parseUrineReport(text) {
   const urineParameters = {
     Color: {
       pattern: /(?:COLOR|Colour)\s*[:\s]+([A-Za-z]+)/i,
-      normal: ["Yellow", "Straw", "Light Yellow", "Pale"],
+      normal: ["Yellow", "Straw", "Light Yellow", "Pale", "Yellowish", "Pale Yellow"],
       warning: "Abnormal urine color may indicate dehydration or infection."
     },
     Appearance: {
