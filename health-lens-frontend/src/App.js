@@ -1372,7 +1372,7 @@ const Reports = ({ reports, setReports, token }) => {
 
                   {selectedReport.fileUrl && (
                     <a
-                      href={`http://localhost:5000${selectedReport.fileUrl}`}
+                      href={`${process.env.REACT_APP_BACKEND_URL}${selectedReport.fileUrl}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
@@ -1949,7 +1949,7 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
             {vac.reportFile && (
               <div className="mt-4 pt-3 border-t">
                 <a
-                  href={`http://localhost:5000/${vac.reportFile}`}
+                  href={`${process.env.REACT_APP_BACKEND_URL}${vac.reportFile}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="
