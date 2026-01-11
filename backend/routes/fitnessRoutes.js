@@ -429,10 +429,9 @@ router.get("/weekly-stats", authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const now = new Date();
 
-    /* ───────── THIS WEEK ───────── */
-    // Monday of current week
+    /* ───────── THIS WEEK (Sunday → Saturday) ───────── */
     const startOfThisWeek = new Date(now);
-    startOfThisWeek.setDate(now.getDate() - now.getDay() + 1);
+    startOfThisWeek.setDate(now.getDate() - now.getDay()); // Sunday
     startOfThisWeek.setHours(0, 0, 0, 0);
 
     /* ───────── LAST WEEK ───────── */
@@ -461,7 +460,8 @@ router.get("/weekly-stats", authMiddleware, async (req, res) => {
     }).select("goal completedAt targetMinutes");
 
     res.json({
-      workoutsThisWeek: completedThisWeek.length,
+      thisWeekCount: completedThisWeek.length,
+      lastWeekCount: completedLastWeek.length,
       goalsCompletedThisWeek: completedThisWeek,
       goalsCompletedLastWeek: completedLastWeek
     });

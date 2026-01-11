@@ -84,5 +84,22 @@ router.get("/me", auth, async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+router.put("/update-profile", auth, async (req, res) => {
+  const { age, height, weight } = req.body;
+
+  let bmi = null;
+  if (height && weight) {
+    const hMeters = height / 100;
+    bmi = +(weight / (hMeters * hMeters)).toFixed(1);
+  }
+
+  const user = await User.findByIdAndUpdate(
+    req.user.id,
+    { age, height, weight, bmi },
+    { new: true }
+  );
+
+  res.json(user);
+});
 
 module.exports = router;

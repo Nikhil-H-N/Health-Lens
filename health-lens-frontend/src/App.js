@@ -99,6 +99,31 @@ const HealthLensApp = () => {
       fetchUserData();
     }
   }, [token]);
+  useEffect(() => {
+    if (!token) return;
+
+    const fetchUser = async () => {
+      try {
+        const res = await fetch(`${API_URL}/user/me`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+
+        if (!res.ok) {
+          setUser(null);
+          return;
+        }
+
+        const data = await res.json();
+        setUser(data);
+      } catch (err) {
+        console.error("Failed to load user on refresh");
+      }
+    };
+
+    fetchUser();
+  }, [token]);
 
   const fetchUserData = async () => {
     try {
@@ -242,6 +267,19 @@ const HealthLensApp = () => {
 // Auth Page Component
 const AuthPage = ({ setToken, setUser }) => {
   const [isLogin, setIsLogin] = useState(true);
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [step, setStep] = useState("form"); // form | otp
+  const [otp, setOtp] = useState("");
+  const [forgotStep, setForgotStep] = useState("email");
+  // email → otp → reset
+
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotOtp, setForgotOtp] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [forgotError, setForgotError] = useState("");
+
   const [formData, setFormData] = useState({
     name: '', email: '', password: '', age: '', height: '', weight: ''
   });
@@ -252,41 +290,170 @@ const AuthPage = ({ setToken, setUser }) => {
     setError('');
 
     try {
-      const endpoint = isLogin ? '/auth/login' : '/auth/register';
-      const res = await fetch(`${API_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
+      // 🔐 LOGIN (UNCHANGED)
+      if (isLogin) {
+        const res = await fetch(`${API_URL}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: formData.email,
+            password: formData.password
+          })
+        });
 
-      const data = await res.json();
+        const data = await res.json();
 
-      if (!res.ok) {
-        setError(data.error || 'Something went wrong');
+        if (!res.ok) {
+          setError(data.error || 'Invalid credentials');
+          return;
+        }
+
+        localStorage.setItem('token', data.token);
+        setToken(data.token);
+
+        try {
+          const userRes = await fetch(`${API_URL}/user/me`, {
+            headers: { Authorization: `Bearer ${data.token}` }
+          });
+          const userData = await userRes.json();
+          setUser(userData);
+        } catch {
+          setUser(data.user);
+        }
+
         return;
       }
 
-      if (isLogin) {
-        localStorage.setItem('token', data.token);
-        setToken(data.token);
-        // Fetch full user profile including moodPhotos
-        try {
-          const userRes = await fetch(`${API_URL}/user/me`, {
-            headers: { 'Authorization': `Bearer ${data.token}` }
-          });
-          const userData = await userRes.json();
-          setUser(userData);  // now includes moodPhotos
-        } catch (err) {
-          console.error('Failed to fetch user profile:', err);
-          setUser(data.user);  // fallback to login response user
+      // 🟡 REGISTER – STEP 1: REQUEST OTP
+      if (!isLogin && step === "form") {
+
+        // ✅ PASSWORD MATCH CHECK
+        if (formData.password !== confirmPassword) {
+          setError("Passwords do not match");
+          return;
         }
-      } else {
-        setIsLogin(true);
-        setError('Registration successful! Please login.');
+
+        const res = await fetch(`${API_URL}/auth/register/request-otp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: formData.name,
+            email: formData.email,
+            password: formData.password
+          })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          setError(data.error || "Failed to send OTP");
+          return;
+        }
+
+        setStep("otp");
+        return;
       }
+
+      // 🟢 REGISTER – STEP 2: VERIFY OTP
+      if (!isLogin && step === "otp") {
+        const res = await fetch(`${API_URL}/auth/register/verify-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: formData.name,
+            email: formData.email,
+            password: formData.password,
+            otp
+          })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          setError(data.error || 'Invalid OTP');
+          return;
+        }
+
+        setIsLogin(true);
+        setStep("form");
+        setError("Registration successful! Please login.");
+      }
+
     } catch (err) {
       setError('Network error. Please try again.');
     }
+  };
+  const sendForgotOtp = async () => {
+    console.log("Send OTP clicked", forgotEmail);
+    setForgotError("");
+
+    try {
+      const res = await fetch(`${API_URL}/auth/forgot-password/request-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail })
+      });
+
+      const data = await res.json();
+      console.log("OTP response:", data);
+
+      if (!res.ok) {
+        setForgotError(data.error || "Failed to send OTP");
+        return;
+      }
+
+      // ✅ THIS IS REQUIRED
+      setForgotStep("otp");
+
+    } catch (err) {
+      setForgotError("Network error");
+    }
+  };
+  const verifyForgotOtp = async () => {
+    setForgotError("");
+
+    const res = await fetch(`${API_URL}/auth/forgot-password/verify-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: forgotEmail,
+        otp: forgotOtp
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      setForgotError(data.error || "Invalid OTP");
+      return;
+    }
+
+    setForgotStep("reset");
+  };
+  const resetPassword = async () => {
+    if (newPassword !== confirmNewPassword) {
+      setForgotError("Passwords do not match");
+      return;
+    }
+
+    const res = await fetch(`${API_URL}/auth/forgot-password/reset`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: forgotEmail,
+        newPassword
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      setForgotError(data.error || "Failed to reset password");
+      return;
+    }
+
+    setShowForgotModal(false);
+    setForgotStep("email");
   };
 
   return (
@@ -315,13 +482,14 @@ const AuthPage = ({ setToken, setUser }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {!isLogin && (
+
+          {!isLogin && step === "form" && (
             <input
               type="text"
               placeholder="Full Name"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg"
               required
             />
           )}
@@ -331,59 +499,170 @@ const AuthPage = ({ setToken, setUser }) => {
             placeholder="Email"
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg"
             required
           />
 
-          <input
-            type="password"
-            placeholder="Password"
-            value={formData.password}
-            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            required
-          />
+          {step === "form" && (
+            <input
+              type="password"
+              placeholder="Password"
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+              required
+            />
+          )}
+          {!isLogin && step === "form" && (
+            <input
+              type="password"
+              placeholder="Confirm Password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              required
+            />
+          )}
 
-          {!isLogin && (
-            <div className="grid grid-cols-3 gap-3">
-              <input
-                type="number"
-                placeholder="Age"
-                value={formData.age}
-                onChange={(e) => setFormData({ ...formData, age: e.target.value })}
-                className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <input
-                type="number"
-                placeholder="Height (cm)"
-                value={formData.height}
-                onChange={(e) => setFormData({ ...formData, height: e.target.value })}
-                className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <input
-                type="number"
-                placeholder="Weight (kg)"
-                value={formData.weight}
-                onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
-                className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
+          {/* ✅ OTP INPUT */}
+          {!isLogin && step === "otp" && (
+            <input
+              type="text"
+              placeholder="Enter OTP"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+              required
+            />
           )}
 
           {error && (
-            <div className={`p-3 rounded-lg ${error.includes('successful') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+            <div className={`p-3 rounded-lg ${error.includes('successful')
+              ? 'bg-green-100 text-green-700'
+              : 'bg-red-100 text-red-700'
+              }`}>
               {error}
             </div>
           )}
 
           <button
             type="submit"
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
+            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold"
           >
-            {isLogin ? 'Login' : 'Register'}
+            {isLogin
+              ? 'Login'
+              : step === "form"
+                ? 'Send OTP'
+                : 'Verify OTP'}
           </button>
+          {/* 🔹 Forgot Password (Login only) */}
+          {isLogin && (
+            <div className="text-right">
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotStep("email");        // ✅ RESET FLOW
+                  setForgotEmail("");
+                  setForgotOtp("");
+                  setNewPassword("");
+                  setConfirmNewPassword("");
+                  setForgotError("");
+                  setShowForgotModal(true);
+                }}
+                className="text-sm text-blue-600 hover:underline"
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
+
         </form>
       </div>
+      {showForgotModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-md rounded-xl p-6 space-y-4">
+
+            <h3 className="text-xl font-bold">Reset Password</h3>
+
+            {forgotStep === "email" && (
+              <>
+                <input
+                  type="email"
+                  placeholder="Enter your email"
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  className="w-full px-4 py-3 border rounded-lg"
+                  required
+                />
+
+                <button
+                  onClick={sendForgotOtp}
+                  className="w-full bg-blue-600 text-white py-3 rounded-lg"
+                >
+                  Send OTP
+                </button>
+              </>
+            )}
+            {forgotStep === "otp" && (
+              <>
+                <input
+                  type="text"
+                  placeholder="Enter OTP"
+                  value={forgotOtp}
+                  onChange={(e) => setForgotOtp(e.target.value)}
+                  className="w-full px-4 py-3 border rounded-lg"
+                />
+
+                <button
+                  onClick={verifyForgotOtp}
+                  className="w-full bg-blue-600 text-white py-3 rounded-lg"
+                >
+                  Verify OTP
+                </button>
+              </>
+            )}
+            {forgotStep === "reset" && (
+              <>
+                <input
+                  type="password"
+                  placeholder="New password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-4 py-3 border rounded-lg"
+                />
+
+                <input
+                  type="password"
+                  placeholder="Confirm new password"
+                  value={confirmNewPassword}
+                  onChange={(e) => setConfirmNewPassword(e.target.value)}
+                  className="w-full px-4 py-3 border rounded-lg"
+                />
+
+                <button
+                  onClick={resetPassword}
+                  className="w-full bg-green-600 text-white py-3 rounded-lg"
+                >
+                  Update Password
+                </button>
+              </>
+            )}
+            {forgotError && (
+              <p className="text-sm text-red-600">{forgotError}</p>
+            )}
+
+            <button
+              onClick={() => {
+                setShowForgotModal(false);
+                setForgotStep("email"); // reset when closing
+              }}
+              className="w-full text-gray-600 text-sm mt-2"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -452,8 +731,13 @@ const Dashboard = ({ reports, diseases, vaccinations, setVaccinations, fitnessGo
     const dueDate = new Date(vac.nextDueDate);
     dueDate.setHours(0, 0, 0, 0);
 
-    return dueDate < today;
+    // 🔑 overdue only AFTER renewal day ends
+    const overdueFrom = new Date(dueDate);
+    overdueFrom.setDate(dueDate.getDate() + 1);
+
+    return today >= overdueFrom;
   };
+
   const canRenew = (vac) => {
     if (!vac.nextDueDate) return false;
 
@@ -537,8 +821,8 @@ const Dashboard = ({ reports, diseases, vaccinations, setVaccinations, fitnessGo
                     disabled={!canRenew(vac)}
                     onChange={() => handleRenew(vac._id)}
                     className={`w-5 h-5 accent-green-600 ${canRenew(vac)
-                        ? "cursor-pointer"
-                        : "cursor-not-allowed opacity-50"
+                      ? "cursor-pointer"
+                      : "cursor-not-allowed opacity-50"
                       }`}
                     title={
                       canRenew(vac)
@@ -588,6 +872,9 @@ const Reports = ({ reports, setReports, token }) => {
   const [ocrResult, setOcrResult] = useState(null);
   const [selectedReport, setSelectedReport] = useState(null);
   const [filterType, setFilterType] = useState("ALL");
+  const [deleteTarget, setDeleteTarget] = useState(null); // report to delete
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+
   const [formData, setFormData] = useState({
     type: '',
     date: new Date().toISOString().split('T')[0],
@@ -610,7 +897,10 @@ const Reports = ({ reports, setReports, token }) => {
           type: formData.type,
           date: formData.date,
           values: formData.values,
-          suggestions: ocrResult?.healthWarnings || []
+          suggestions: ocrResult?.healthWarnings || [],
+          abnormalParameters: ocrResult?.abnormalParameters || [],
+          overallStatus: ocrResult?.overallStatus || "",
+          fileUrl: formData.fileUrl
         })
 
       });
@@ -626,14 +916,14 @@ const Reports = ({ reports, setReports, token }) => {
       console.error('Error uploading report:', err);
     }
   };
-  const handleDelete = async (id) => {
-    const confirmDelete = window.confirm(
-      "Are you sure you want to delete this report?"
-    );
+  const handleDeleteClick = (report) => {
+    setDeleteTarget(report);
+    setShowDeleteModal(true);
+  };
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
 
-    if (!confirmDelete) return;
-
-    const res = await fetch(`${API_URL}/reports/${id}`, {
+    const res = await fetch(`${API_URL}/reports/${deleteTarget._id}`, {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${token}`
@@ -641,10 +931,14 @@ const Reports = ({ reports, setReports, token }) => {
     });
 
     if (res.ok) {
-      setReports(prev => prev.filter(r => r._id !== id));
+      setReports(prev =>
+        prev.filter(r => r._id !== deleteTarget._id)
+      );
     }
-  };
 
+    setShowDeleteModal(false);
+    setDeleteTarget(null);
+  };
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
@@ -652,6 +946,10 @@ const Reports = ({ reports, setReports, token }) => {
 
     setUploadingImage(true);
     setOcrResult(null);
+    if (!formData.type) {
+      alert("Please select report type first");
+      return;
+    }
 
     const formDataObj = new FormData();
     formDataObj.append('image', file);
@@ -677,7 +975,8 @@ const Reports = ({ reports, setReports, token }) => {
           values: data.extractedData || {},
           suggestions: data.healthWarnings || [],
           abnormalParameters: data.abnormalParameters || [],
-          overallStatus: data.overallStatus || ""
+          overallStatus: data.overallStatus || "",
+          fileUrl: data.fileUrl
         }));
 
       } else {
@@ -746,18 +1045,19 @@ const Reports = ({ reports, setReports, token }) => {
             {/* OCR Scan Button */}
             <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <input
-                type="file"
                 id="ocr-upload"
+                type="file"
                 accept="image/*,application/pdf"
                 onChange={handleImageUpload}
-                className="hidden"
-                disabled={uploadingImage}
+                hidden
+                disabled={!formData.type || uploadingImage}
               />
               <label
-                htmlFor="ocr-upload"
-                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold cursor-pointer transition ${uploadingImage
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+                htmlFor={formData.type ? "ocr-upload" : undefined}
+                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition
+    ${uploadingImage || !formData.type
+                    ? "bg-gray-400 cursor-not-allowed"
+                    : "bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
                   }`}
               >
                 <svg
@@ -773,10 +1073,15 @@ const Reports = ({ reports, setReports, token }) => {
                     d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
                   />
                 </svg>
-                {uploadingImage ? 'Scanning...' : 'Scan Report'}
+
+                {uploadingImage
+                  ? "Scanning..."
+                  : !formData.type
+                    ? "Select report type first"
+                    : "Scan Report"}
               </label>
               <span className="text-sm text-gray-600">
-                Click to upload and scan a medical report image or PDF
+                Click to upload and scan a medical report image(recommended) or PDF
               </span>
             </div>
             {/* 🔍 OCR Preview Section (Shown after scan) */}
@@ -937,9 +1242,23 @@ const Reports = ({ reports, setReports, token }) => {
 
             {/* Buttons */}
             <div className="flex gap-3">
-              <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">
+              <button
+                type="submit"
+                disabled={formData.type !== "Vaccination" && !ocrResult}
+                className={`px-6 py-2 rounded-lg font-semibold transition
+    ${!ocrResult
+                    ? "bg-gray-400 cursor-not-allowed text-white"
+                    : "bg-blue-600 hover:bg-blue-700 text-white"
+                  }`}
+              >
                 Save Report
               </button>
+              {!ocrResult && (
+                <p className="text-sm text-gray-500">
+                  ⚠ Please scan the report before saving
+                </p>
+              )}
+
               <button
                 type="button"
                 onClick={() => { setShowForm(false); setOcrResult(null); }}
@@ -986,49 +1305,50 @@ const Reports = ({ reports, setReports, token }) => {
             if (filterType === "Urine") return report.type.toLowerCase().includes("urine");
             return true;
           })
-          .map(report => (
-            <div
-              key={report._id}
-              onClick={() => setSelectedReport(report)}
-              className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition cursor-pointer"
-            >
-              <div className="flex justify-between items-start mb-3">
-                <div>
-                  <h3 className="font-bold text-lg">{report.type}</h3>
-                  <p className="text-sm text-gray-500">
-                    {new Date(report.date).toLocaleDateString()}
-                  </p>
-                  <p className="text-sm mt-1 text-gray-600">
-                    Status: {report.suggestions?.length > 0
-                      ? `⚠ ${report.suggestions.length} abnormality(s)`
-                      : "✅ Normal"}
-                  </p>
+          .map(report => {
+            const abnormalCount =
+              report.abnormalParameters?.length || 0;
+
+            return (
+              <div
+                key={report._id}
+                onClick={() => setSelectedReport(report)}
+                className="
+    bg-white rounded-xl shadow-sm p-6
+    hover:shadow-md transition cursor-pointer
+  "
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <h3 className="font-bold text-lg">{report.type}</h3>
+                    <p className="text-sm text-gray-500">
+                      {new Date(report.date).toLocaleDateString()}
+                    </p>
+                  </div>
+
+                  {/* Delete only */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation(); // 🚫 don’t open modal
+                      handleDeleteClick(report);
+                    }}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
                 </div>
 
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation(); // 🔥 IMPORTANT: prevents modal opening
-                    handleDelete(report._id);
-                  }}
-                  className="text-red-500 hover:text-red-700"
+                <p
+                  className={`text-sm font-semibold ${report.abnormalParameters?.length > 0
+                    ? "text-yellow-600"
+                    : "text-green-600"
+                    }`}
                 >
-                  <Trash2 className="w-5 h-5" />
-                </button>
+                  {report.overallStatus}
+                </p>
               </div>
-
-              <p
-                className={`text-sm font-semibold ${report.suggestions?.length > 0
-                  ? "text-yellow-600"
-                  : "text-green-600"
-                  }`}
-              >
-                {report.suggestions?.length > 0
-                  ? `⚠ ${report.suggestions.length} abnormalities`
-                  : "✅ All parameters normal"}
-              </p>
-            </div>
-          ))
-        }
+            );
+          })}
       </div>
       {selectedReport && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1043,23 +1363,46 @@ const Reports = ({ reports, setReports, token }) => {
 
             {/* Extracted Values */}
             <div className="space-y-2">
-              {Object.entries(selectedReport.values).map(([key, value]) => {
-                const isAbnormal =
-                  selectedReport.abnormalParameters?.includes(key);
+              {/* VIEW BASED ON TYPE */}
+              {selectedReport.type === "Vaccination" ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-600">
+                    Vaccination document uploaded
+                  </p>
 
-                return (
-                  <div
-                    key={key}
-                    className={`flex justify-between py-1 text-sm border-b ${isAbnormal
-                      ? "text-red-600 font-semibold"
-                      : "text-gray-700"
-                      }`}
-                  >
-                    <span>{key}</span>
-                    <span>{value}</span>
+                  {selectedReport.fileUrl && (
+                    <a
+                      href={`http://localhost:5000${selectedReport.fileUrl}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                    >
+                      📄 View Vaccination Report
+                    </a>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {/* Blood / Urine */}
+                  <div className="space-y-2">
+                    {Object.entries(selectedReport.values).map(([key, value]) => {
+                      const isAbnormal =
+                        selectedReport.abnormalParameters?.includes(key);
+
+                      return (
+                        <div
+                          key={key}
+                          className={`flex justify-between py-1 text-sm border-b ${isAbnormal ? "text-red-600 font-semibold" : "text-gray-700"
+                            }`}
+                        >
+                          <span>{key}</span>
+                          <span>{value}</span>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </>
+              )}
             </div>
 
             {/* Warnings */}
@@ -1080,6 +1423,39 @@ const Reports = ({ reports, setReports, token }) => {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-[400px]">
+            <h3 className="text-lg font-bold mb-3">
+              Delete Report?
+            </h3>
+
+            <p className="text-sm text-gray-600 mb-6">
+              Are you sure you want to delete this report?
+              This action cannot be undone.
+            </p>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setDeleteTarget(null);
+                }}
+                className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1408,6 +1784,21 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
       setIsDeleting(false); // 🔓 unlock UI
     }
   };
+  const isOverdue = (vac) => {
+    if (!vac.nextDueDate) return false;
+    if (vac.renewalCompleted) return false;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const dueDate = new Date(vac.nextDueDate);
+    dueDate.setHours(0, 0, 0, 0);
+
+    const overdueFrom = new Date(dueDate);
+    overdueFrom.setDate(dueDate.getDate() + 1);
+
+    return today >= overdueFrom;
+  };
 
   return (
     <div className="space-y-6">
@@ -1533,32 +1924,25 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
               )}
 
               {vac.nextDueDate && (
-                <p className="text-sm mt-1">
-                  <span
-                    className={`${!vac.renewalCompleted &&
-                      new Date(vac.nextDueDate) < new Date()
-                      ? "text-red-600 font-semibold"
-                      : "text-gray-600"
-                      }`}
-                  >
-                    Renewal: {new Date(vac.nextDueDate).toLocaleDateString()}
-                  </span>
-
-                  {!vac.renewalCompleted &&
-                    new Date(vac.nextDueDate) < new Date() && (
-                      <span className="ml-2 text-red-600 font-semibold">
-                        (Overdue)
-                      </span>
-                    )}
+                <p
+                  className={`text-sm mt-1 ${isOverdue(vac) ? "text-red-600 font-semibold" : "text-gray-600"
+                    }`}
+                >
+                  Renewal: {new Date(vac.nextDueDate).toLocaleDateString()}
 
                   {vac.renewalCompleted && (
                     <span className="ml-2 text-green-600 font-semibold">
                       ✓ Renewed
                     </span>
                   )}
+
+                  {!vac.renewalCompleted && isOverdue(vac) && (
+                    <span className="ml-2 text-red-600 font-semibold">
+                      (Overdue)
+                    </span>
+                  )}
                 </p>
               )}
-
             </div>
 
             {/* Bottom Section – Report Button */}
@@ -2099,7 +2483,60 @@ const HealthChat = ({ chatHistory, setChatHistory, token }) => {
 };
 
 // Profile Component
-const Profile = ({ user, token }) => {
+const Profile = ({ user, token, setUser }) => {
+  const [isEditing, setIsEditing] = useState(
+    !user?.age || !user?.height || !user?.weight
+  );
+  const [profile, setProfile] = useState({
+    age: user?.age || "",
+    height: user?.height || "",
+    weight: user?.weight || ""
+  });
+
+  const [message, setMessage] = useState("");
+  const saveProfile = async () => {
+    try {
+      const res = await fetch(`${API_URL}/user/update-profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(profile)
+      });
+
+      if (!res.ok) {
+        setMessage("Failed to update profile");
+        return;
+      }
+
+      const updatedUser = await res.json();
+
+      // ✅ SYNC GLOBAL USER STATE
+      setUser(updatedUser);
+      setIsEditing(false); // 🔒 lock fields again
+
+      setMessage("Profile updated successfully ✅");
+    } catch (err) {
+      setMessage("Server error");
+    }
+  };
+  const getBmiStatus = (bmi) => {
+    if (bmi < 18.5) return "Underweight";
+    if (bmi < 25) return "Normal";
+    if (bmi < 30) return "Overweight";
+    return "Obese";
+  };
+  useEffect(() => {
+    if (user) {
+      setProfile({
+        age: user.age || "",
+        height: user.height || "",
+        weight: user.weight || ""
+      });
+    }
+  }, [user]);
+
   return (
     <div className="space-y-6">
       <h2 className="text-3xl font-bold text-gray-800">👤 Profile</h2>
@@ -2116,15 +2553,83 @@ const Profile = ({ user, token }) => {
         </div>
 
         <div className="space-y-4">
+          <div className="border-t pt-4 space-y-3">
+            <h4 className="font-semibold text-lg">Health Details</h4>
+
+            <input
+              type="number"
+              min="0"
+              placeholder="Age"
+              disabled={!isEditing}
+              value={profile.age}
+              onChange={(e) =>
+                setProfile({ ...profile, age: Math.max(0, e.target.value) })
+              }
+              className={`w-full px-4 py-3 border rounded-lg ${!isEditing ? "bg-gray-100 cursor-not-allowed" : ""
+                }`}
+            />
+            <input
+              type="number"
+              min="0"
+              placeholder="Height (cm)"
+              disabled={!isEditing}
+              value={profile.height}
+              onChange={(e) =>
+                setProfile({ ...profile, height: Math.max(0, e.target.value) })
+              }
+              className={`w-full px-4 py-3 border rounded-lg ${!isEditing ? "bg-gray-100 cursor-not-allowed" : ""
+                }`}
+            />
+
+            <input
+              type="number"
+              min="0"
+              placeholder="Weight (kg)"
+              disabled={!isEditing}
+              value={profile.weight}
+              onChange={(e) =>
+                setProfile({ ...profile, weight: Math.max(0, e.target.value) })
+              }
+              className={`w-full px-4 py-3 border rounded-lg ${!isEditing ? "bg-gray-100 cursor-not-allowed" : ""
+                }`}
+            />
+
+            {user?.bmi && (
+              <div className="border-t pt-4">
+                <p className="text-sm text-gray-600">BMI</p>
+                <p className="text-xl font-bold text-blue-600">
+                  {user.bmi}{" "}
+                  <span className="text-base font-medium text-gray-500">
+                    ({getBmiStatus(user.bmi)})
+                  </span>
+                </p>
+              </div>
+            )}
+
+            {isEditing ? (
+              <button
+                onClick={saveProfile}
+                className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700"
+              >
+                Save Profile
+              </button>
+            ) : (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700"
+              >
+                Edit Profile
+              </button>
+            )}
+            {message && (
+              <p className="text-sm text-center text-green-600">
+                {message}
+              </p>
+            )}
+          </div>
           <div className="border-t pt-4">
             <p className="text-sm text-gray-600">Member since</p>
             <p className="font-semibold">2025</p>
-          </div>
-          <div className="border-t pt-4">
-            <p className="text-sm text-gray-600">Health Score</p>
-            <p className="font-semibold text-green-600">
-              {user?.healthScore}/100
-            </p>
           </div>
         </div>
       </div>
@@ -2774,6 +3279,8 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
   const lastFiveSessions = [...meditationLogs]
     .slice(-5)
     .reverse();
+  const thisWeekCount = goalsCompletedThisWeek.length;
+  const lastWeekCount = goalsCompletedLastWeek.length;
 
 
   return (
@@ -3227,7 +3734,12 @@ const FitnessGoals = ({ goal, setGoal, token }) => {
         <h3 className="text-xl font-bold mb-4">📊 Wellness Stats</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-3xl font-bold text-orange-500">{workoutsThisWeek}</p>
+            <p className="text-3xl font-bold text-orange-500">
+              {weekView === "this"
+                ? thisWeekCount
+                : lastWeekCount}
+            </p>
+
             <p className="text-sm text-gray-600">Goals completed this week</p>
             <select
               value={weekView}
