@@ -57,8 +57,7 @@ const FOOD_DATA = {
   }
 };
 
-const API_URL = process.env.REACT_APP_API_URL;
-// Change this to your backend URL
+const API_URL = 'http://localhost:5000/api'; // Change this to your backend URL
 
 // ✅ Add these helper functions here
 function getMoodKey(progress) {
@@ -1373,7 +1372,7 @@ const Reports = ({ reports, setReports, token }) => {
 
                   {selectedReport.fileUrl && (
                     <a
-                      href={`${process.env.REACT_APP_BACKEND_URL}${selectedReport.fileUrl}`}
+                      href={`http://localhost:5000${selectedReport.fileUrl}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
@@ -1950,7 +1949,7 @@ const Vaccinations = ({ vaccinations, setVaccinations, token }) => {
             {vac.reportFile && (
               <div className="mt-4 pt-3 border-t">
                 <a
-                  href={`${process.env.REACT_APP_BACKEND_URL}${vac.reportFile}`}
+                  href={`http://localhost:5000/${vac.reportFile}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="

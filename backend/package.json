@@ -4,7 +4,7 @@
   "description": "",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
@@ -21,7 +21,6 @@
     "openai": "^6.15.0",
     "otp-generator": "^4.0.1",
     "pdf-parse": "^1.1.1",
-    "pdf-poppler": "^0.2.3",
-    "sharp": "^0.34.5"
+    "pdf-poppler": "^0.2.3"
   }
 }
